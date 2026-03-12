@@ -55,12 +55,13 @@ def compute_metrics(predicted: str, reference: str) -> dict[str, float]:
     }
 
 
-def aggregate_metrics(results: list[dict[str, float]]) -> dict[str, float]:
-    """Average metrics across examples."""
+def aggregate_metrics(results: list[dict]) -> dict[str, float]:
+    """Average numeric metrics across examples."""
     if not results:
         return {}
-    keys = results[0].keys()
-    return {k: sum(r[k] for r in results) / len(results) for k in keys}
+    numeric_keys = [k for k in ("em", "es", "id_precision", "id_recall", "id_f1")
+                    if k in results[0]]
+    return {k: sum(r.get(k, 0) for r in results) / len(results) for k in numeric_keys}
 
 
 # --- internals ---

@@ -257,39 +257,91 @@ def build_prompt(example: dict, condition: str, tempograph_ctx: str = "") -> str
 
     # Build the completion prompt
     system = (
-        "You are a code completion assistant. Complete the code at the cursor position. "
-        "Output ONLY the completion code, nothing else. No explanations, no markdown."
+        "You are a code completion engine. You output ONLY raw code — the single next line. "
+        "NEVER explain. NEVER use markdown. NEVER repeat the prompt. "
+        "Output the exact code that replaces <CURSOR>, nothing more."
     )
     user_parts = []
     if context_block:
-        user_parts.append(f"Relevant context from other files:\n```\n{context_block}\n```\n")
-    user_parts.append(f"Complete the code at <CURSOR>:\n```\n{prompt}<CURSOR>\n{right_ctx}\n```")
+        user_parts.append(f"Relevant context from other files:\n{context_block}\n")
+    user_parts.append(f"{prompt}<CURSOR>\n{right_ctx}")
 
     return json.dumps({"system": system, "user": "\n".join(user_parts)})
 
 
-async def call_llm(prompt_json: str, model: str = "claude-haiku-4-5-20251001") -> str:
-    """Call Claude API for completion."""
-    try:
-        import anthropic
-    except ImportError:
-        print("Install anthropic: pip install anthropic", file=sys.stderr)
-        sys.exit(1)
+def _clean_completion(text: str) -> str:
+    """Strip explanations and markdown from model output, keep only code."""
+    import re
+    text = text.strip()
+    # If model wrapped in ```python ... ```, extract inner
+    m = re.search(r'```(?:python|py|typescript|ts|java|csharp)?\s*\n(.+?)```', text, re.DOTALL)
+    if m:
+        text = m.group(1).strip()
+    # If starts with explanation, try to find code after it
+    if text and text[0].isalpha() and any(text.startswith(p) for p in
+            ("Certainly", "To complete", "Here", "The ", "This ", "Based on", "Looking at", "I ")):
+        # Look for a code line after the explanation
+        lines = text.split("\n")
+        code_lines = []
+        in_code = False
+        for line in lines:
+            stripped = line.strip()
+            if not in_code and stripped and not stripped[0].isalpha():
+                in_code = True
+            if in_code:
+                code_lines.append(line)
+        if code_lines:
+            text = "\n".join(code_lines).strip()
+        else:
+            # Take just the first line as a guess
+            text = lines[0] if lines else text
+    # Take only the first meaningful line (completion is single-line)
+    lines = [l for l in text.split("\n") if l.strip()]
+    return lines[0] if lines else text
+
+
+async def call_llm(prompt_json: str, model: str = "qwen2.5-coder:32b", ollama_url: str = "http://localhost:11434") -> str:
+    """Call LLM for completion. Supports Ollama (default) and Anthropic."""
+    import httpx
 
     prompt = json.loads(prompt_json)
-    client = anthropic.AsyncAnthropic()
 
-    try:
-        response = await client.messages.create(
-            model=model,
-            max_tokens=256,
-            system=prompt["system"],
-            messages=[{"role": "user", "content": prompt["user"]}],
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        print(f"API error: {e}", file=sys.stderr)
-        return ""
+    if model.startswith("claude-"):
+        try:
+            import anthropic
+        except ImportError:
+            print("Install anthropic: pip install anthropic", file=sys.stderr)
+            sys.exit(1)
+        client = anthropic.AsyncAnthropic()
+        try:
+            response = await client.messages.create(
+                model=model,
+                max_tokens=256,
+                system=prompt["system"],
+                messages=[{"role": "user", "content": prompt["user"]}],
+            )
+            return _clean_completion(response.content[0].text)
+        except Exception as e:
+            print(f"API error: {e}", file=sys.stderr)
+            return ""
+
+    # Ollama
+    async with httpx.AsyncClient(timeout=120) as client:
+        try:
+            resp = await client.post(f"{ollama_url}/api/chat", json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": prompt["system"]},
+                    {"role": "user", "content": prompt["user"]},
+                ],
+                "options": {"num_predict": 256, "temperature": 0.1},
+            })
+            resp.raise_for_status()
+            return _clean_completion(resp.json()["message"]["content"])
+        except Exception as e:
+            print(f"Ollama error: {e}", file=sys.stderr)
+            return ""
 
 
 async def run_condition(
@@ -297,7 +349,8 @@ async def run_condition(
     condition: str,
     tempograph_contexts: dict[str, str],
     model: str,
-    concurrency: int = 10,
+    concurrency: int = 3,
+    ollama_url: str = "http://localhost:11434",
 ) -> list[dict]:
     """Run all examples for one condition, return per-example results."""
     semaphore = asyncio.Semaphore(concurrency)
@@ -308,7 +361,7 @@ async def run_condition(
             task_id = ex.get("metadata", {}).get("task_id", f"unknown_{i}")
             ctx = tempograph_contexts.get(task_id, "") if condition == "tempograph" else ""
             prompt_json = build_prompt(ex, condition, ctx)
-            predicted = await call_llm(prompt_json, model)
+            predicted = await call_llm(prompt_json, model, ollama_url)
             reference = ex.get("groundtruth", "")
             metrics = compute_metrics(predicted, reference)
             return {
@@ -376,8 +429,9 @@ def main():
     parser.add_argument("--subset", type=int, default=10, help="Examples per language (default: 10)")
     parser.add_argument("--languages", default="python,typescript", help="Comma-separated languages")
     parser.add_argument("--conditions", default=",".join(CONDITIONS), help="Comma-separated conditions")
-    parser.add_argument("--model", default="claude-haiku-4-5-20251001", help="LLM model ID")
-    parser.add_argument("--concurrency", type=int, default=10, help="Max concurrent API calls")
+    parser.add_argument("--model", default="qwen2.5-coder:32b", help="Model (ollama name or claude-*)")
+    parser.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama API URL")
+    parser.add_argument("--concurrency", type=int, default=3, help="Max concurrent calls (lower for Ollama)")
     parser.add_argument("--output", default=None, help="Output JSONL path")
     parser.add_argument("--real-repos", action="store_true", help="Use real repos instead of CrossCodeEval dataset")
     args = parser.parse_args()
@@ -385,8 +439,8 @@ def main():
     languages = [l.strip() for l in args.languages.split(",")]
     conditions = [c.strip() for c in args.conditions.split(",")]
 
-    # Check API key
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    # Check API key only for Claude models
+    if args.model.startswith("claude-") and not os.environ.get("ANTHROPIC_API_KEY"):
         print("Set ANTHROPIC_API_KEY environment variable", file=sys.stderr)
         sys.exit(1)
 
@@ -416,7 +470,7 @@ def main():
         print(f"\nRunning condition: {condition} ({len(examples)} examples)...", file=sys.stderr)
         start = time.time()
         results = asyncio.run(run_condition(
-            examples, condition, tempograph_contexts, args.model, args.concurrency,
+            examples, condition, tempograph_contexts, args.model, args.concurrency, args.ollama_url,
         ))
         elapsed = time.time() - start
         all_results.extend(results)
