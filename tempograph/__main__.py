@@ -21,6 +21,7 @@ from .render import (
     render_map,
     render_overview,
     render_prepare,
+    render_skills,
     render_symbols,
 )
 
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("repo", help="Path to the repository root")
     parser.add_argument(
         "--mode", "-m",
-        choices=("overview", "map", "symbols", "focus", "lookup", "blast", "diff", "hotspots", "deps", "dead", "arch", "stats", "prepare", "report", "serve"),
+        choices=("overview", "map", "symbols", "focus", "lookup", "blast", "diff", "hotspots", "deps", "dead", "arch", "stats", "prepare", "skills", "report", "serve"),
         default="overview",
         help="Rendering mode (default: overview)",
     )
@@ -84,7 +85,16 @@ def main(argv: list[str] | None = None) -> int:
         print(generate_report(repo))
         return 0
 
-    exclude_dirs = [p.strip() for p in args.exclude.split(",")] if args.exclude else None
+    # Merge CLI --exclude with config-file exclude_dirs
+    cli_exclude = [p.strip() for p in args.exclude.split(",")] if args.exclude else []
+    cfg_path = Path(repo) / ".tempo" / "config.json"
+    cfg_exclude: list[str] = []
+    if cfg_path.exists():
+        try:
+            cfg_exclude = json.loads(cfg_path.read_text()).get("exclude_dirs", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+    exclude_dirs = list(dict.fromkeys(cfg_exclude + cli_exclude)) or None
 
     print(f"Building graph for {repo}...", file=sys.stderr)
     start = time.time()
@@ -151,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         "arch": lambda: render_architecture(graph),
         "stats": lambda: _render_stats(graph, elapsed),
         "prepare": lambda: render_prepare(graph, args.query or "understand this codebase", args.max_tokens, args.task_type or ""),
+        "skills": lambda: render_skills(graph, args.query or "", max_tokens=args.max_tokens),
     }
 
     output = mode_map[args.mode]()

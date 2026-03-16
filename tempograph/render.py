@@ -298,13 +298,18 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
 
     For monolith files (>1000 lines), adds intra-file neighborhood context
     and biases BFS toward cross-file edges to avoid getting trapped in one file."""
-    seeds = graph.search_symbols(query)
-    if not seeds:
+    scored = graph.search_symbols_scored(query)
+    if not scored:
         return f"No symbols matching '{query}'"
+
+    # Quality gate: drop seeds with much lower scores than the best match
+    top_score = scored[0][0]
+    threshold = max(top_score * 0.3, 2.0)  # at least 30% of best, minimum 2.0
+    seeds = [sym for score, sym in scored if score >= threshold][:10]
 
     # Determine seed files to detect monolith bias
     seed_files: set[str] = set()
-    for s in seeds[:10]:
+    for s in seeds:
         fi = graph.files.get(s.file_path)
         if fi and fi.line_count >= _MONOLITH_THRESHOLD:
             seed_files.add(s.file_path)
@@ -312,7 +317,7 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
     # BFS: expand from seed symbols following edges
     # Wider expansion: depth 3, more callers/callees at depth 0-1
     seen_ids: set[str] = set()
-    queue: list[tuple[Symbol, int]] = [(s, 0) for s in seeds[:10]]
+    queue: list[tuple[Symbol, int]] = [(s, 0) for s in seeds]
     ordered: list[tuple[Symbol, int]] = []
 
     def _enqueue(candidate: Symbol, depth: int) -> None:
@@ -442,6 +447,14 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
             if fi:
                 tag = " [grep-only]" if fi.line_count > 500 else ""
                 lines.append(f"  {fp} ({fi.line_count} lines){tag}")
+
+    # Blast radius hint for high-impact seed symbols
+    high_impact = [s for s, d in ordered[:5] if d == 0
+                   and len(graph.callers_of(s.id)) >= 3
+                   and any(c.file_path != s.file_path for c in graph.callers_of(s.id))]
+    if high_impact and token_count < max_tokens - 50:
+        names = ", ".join(s.qualified_name for s in high_impact[:3])
+        lines.append(f"\nBefore modifying: run blast_radius(query=\"{high_impact[0].qualified_name}\") to check downstream impact.")
 
     return "\n".join(lines)
 
@@ -584,6 +597,21 @@ def render_lookup(graph: Tempo, question: str) -> str:
                     src = graph.symbols.get(e.source_id)
                     if src:
                         lines.append(f"  {src.file_path}:{e.line} — {src.qualified_name}")
+                return "\n".join(lines)
+
+    # "what implements X?" / "what extends X?" / "subtypes of X"
+    if any(w in q for w in ("implements", "extends", "subtype", "subclass", "inherits from")):
+        name = _extract_name_from_question(question)
+        if name:
+            subtypes = graph.subtypes_of(name)
+            if subtypes:
+                lines = [f"'{name}' is implemented/extended by:"]
+                for sym in subtypes[:15]:
+                    edge_kind = "implements" if any(
+                        e.kind == EdgeKind.IMPLEMENTS and e.target_id == name and e.source_id == sym.id
+                        for e in graph.edges
+                    ) else "extends"
+                    lines.append(f"  {sym.file_path}:{sym.line_start} — {sym.qualified_name} ({edge_kind})")
                 return "\n".join(lines)
 
     # Fallback: treat as search
@@ -1067,7 +1095,7 @@ def _dead_code_confidence(sym: Symbol, graph: Tempo) -> int:
     return max(0, min(100, score))
 
 
-def render_dead_code(graph: Tempo, *, max_symbols: int = 50) -> str:
+def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8000) -> str:
     """Find exported symbols that appear to be unused (never referenced externally)."""
     dead = graph.find_dead_code()
     if not dead:
@@ -1105,7 +1133,20 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50) -> str:
 
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
-    return "\n".join(lines)
+
+    result = "\n".join(lines)
+    if max_tokens and count_tokens(result) > max_tokens:
+        truncated: list[str] = []
+        token_count = 0
+        for line in lines:
+            lt = count_tokens(line)
+            if token_count + lt > max_tokens - 50:
+                truncated.append(f"\n... truncated ({len(dead)} total, use max_tokens to see more)")
+                break
+            truncated.append(line)
+            token_count += lt
+        return "\n".join(truncated)
+    return result
 
 
 def _extract_name_from_question(question: str) -> str:
@@ -1115,24 +1156,47 @@ def _extract_name_from_question(question: str) -> str:
         "where is", "find", "locate", "definition of",
         "what calls", "who calls", "who uses", "callers of", "references to",
         "what does", "dependencies of", "callees of",
-        "who imports", "what imports", "imported by",
-        "what renders", "where is", "show me",
+        "who imports", "what imports", "imported by", "what files import",
+        "what renders", "show me",
+        "what implements", "what extends", "subtypes of", "subclasses of",
+        "what inherits from", "who inherits",
     ):
         if q.lower().startswith(prefix):
             q = q[len(prefix):].strip()
             break
-    for suffix in ("defined", "called", "used", "rendered", "call", "import"):
+    for suffix in ("defined", "called", "used", "rendered", "call", "import",
+                    "class", "function", "method", "module", "interface", "type"):
         if q.lower().endswith(suffix):
             q = q[:-(len(suffix))].strip()
+    # Strip articles and noise words
+    for article in ("the", "a", "an"):
+        if q.lower().startswith(article + " "):
+            q = q[len(article) + 1:]
     q = q.strip("'\"` ")
     return q
 
 
 def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: str = "") -> str:
-    """Batch context preparation: overview + focus + hotspots + diff in one token-budgeted output."""
+    """Batch context preparation: overview + focus + hotspots + diff in one token-budgeted output.
+
+    If L2 learned insights exist for task_type, includes extra modes (dead code, quality)
+    that the data shows are helpful for that task category.
+    """
     from .git import changed_files_unstaged, is_git_repo
     sections: list[str] = []
     token_count = 0
+
+    # Load L2 insights to customize which supplemental modes to include
+    l2_best_modes: set[str] = set()
+    try:
+        from tempo.plugins.learn import TaskMemory
+        mem = TaskMemory(str(Path(graph.root).resolve()))
+        if task_type:
+            rec = mem.get_recommendation(task_type)
+            if rec and rec.get("sample_size", 0) >= 2:
+                l2_best_modes = set(rec["best_modes"])
+    except Exception:
+        pass
 
     s = graph.stats
     sections.append(f"## Repo: {s['files']} files, {s['symbols']} symbols, {s['total_lines']:,} lines")
@@ -1151,6 +1215,16 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
             sections.append("\n## Hotspots (top 5 riskiest)")
             sections.append(hotspot_output)
             token_count += ht + 10
+
+    # L2-guided: include dead code analysis if learned to be useful for this task_type
+    if token_count < max_tokens - 200 and "dead" in l2_best_modes:
+        dead_budget = min(1500, max_tokens - token_count - 100)
+        dead_output = render_dead_code(graph, max_symbols=10, max_tokens=dead_budget)
+        dt = count_tokens(dead_output)
+        if dt <= dead_budget:
+            sections.append("\n## Dead Code (L2: relevant for this task type)")
+            sections.append(dead_output)
+            token_count += dt + 10
 
     if token_count < max_tokens - 100:
         is_change = any(w in task.lower() for w in (
@@ -1175,3 +1249,16 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
 
     sections.append("---\nCall report_feedback after using this context to improve future recommendations.")
     return "\n\n".join(sections)
+
+
+def render_skills(graph: Tempo, query: str = "", *, max_tokens: int = 4000) -> str:
+    """Return a catalog of coding patterns and conventions for this codebase.
+
+    Useful for agents that need to write new code following project conventions
+    (naming, plugin structure, module roles, repeated idioms).
+    """
+    try:
+        from tempo.plugins.skills import get_patterns
+        return get_patterns(graph, query=query, max_tokens=max_tokens)
+    except ImportError:
+        return "Skills plugin not available. Install tempo package."
