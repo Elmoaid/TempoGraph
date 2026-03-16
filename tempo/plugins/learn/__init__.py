@@ -146,6 +146,37 @@ _MODE_TO_TASK_TYPE = {
     "quality": "output_review",
 }
 
+# MCP tool names → canonical mode names (MCP logs "tool", CLI logs "mode")
+_MCP_TOOL_TO_MODE = {
+    "overview": "overview",
+    "focus": "focus",
+    "lookup": "lookup",
+    "blast_radius": "blast",
+    "hotspots": "hotspots",
+    "diff_context": "diff",
+    "dead_code": "dead",
+    "symbols": "symbols",
+    "file_map": "map",
+    "dependencies": "deps",
+    "architecture": "arch",
+    "prepare_context": "context",
+    "learn_recommendation": "learn",
+    "get_patterns": "skills",
+}
+# Tools to skip when extracting context modes (infrastructure, not navigation)
+_SKIP_TOOLS = {"index_repo", "stats", "report_feedback"}
+
+
+def _entry_mode(entry: dict) -> str | None:
+    """Return canonical mode name from a usage entry (works for CLI and MCP sources)."""
+    m = entry.get("mode")
+    if m:
+        return m
+    tool = entry.get("tool")
+    if not tool or tool in _SKIP_TOOLS:
+        return None
+    return _MCP_TOOL_TO_MODE.get(tool, tool)
+
 
 def infer_from_telemetry(repo_path: str) -> int:
     """Infer task outcomes from usage + feedback telemetry. Returns count of new records."""
@@ -219,7 +250,7 @@ def infer_from_telemetry(repo_path: str) -> int:
             # If >30 calls in a 20-minute window, likely a test/audit run
             continue
 
-        modes = [e.get("mode") for e in session if e.get("mode") not in ("stats", "report")]
+        modes = [m for e in session for m in [_entry_mode(e)] if m and m not in ("stats", "report")]
         if not modes:
             continue
 
