@@ -1,4 +1,4 @@
-"""Tests for MCP server: all 15 tools, JSON output, error codes, edge cases."""
+"""Tests for MCP server: all 16 tools, JSON output, error codes, edge cases."""
 import json
 import sys
 import tempfile
@@ -58,7 +58,7 @@ from tempograph.server import (
 
 def test_tool_count():
     from tempograph.server import mcp
-    assert len(mcp._tool_manager._tools) == 16
+    assert len(mcp._tool_manager._tools) == 17
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +167,21 @@ class TestErrorCodes:
         with tempfile.TemporaryDirectory() as tmp:
             raw = diff_context(tmp)
             assert "[ERROR:NOT_GIT_REPO]" in raw
+
+    def test_invalid_params_empty_focus_query(self):
+        assert_error(focus(REPO_PATH, "", output_format="json"), "INVALID_PARAMS")
+
+    def test_invalid_params_whitespace_focus_query(self):
+        assert_error(focus(REPO_PATH, "   ", output_format="json"), "INVALID_PARAMS")
+
+    def test_feedback_bad_repo(self):
+        raw = report_feedback("/nonexistent/repo", "focus", True, "test")
+        assert "ERROR" in raw
+
+    def test_dead_code_max_tokens(self):
+        r1 = assert_ok(dead_code(REPO_PATH, max_tokens=500, output_format="json"))
+        r2 = assert_ok(dead_code(REPO_PATH, max_tokens=8000, output_format="json"))
+        assert r1["tokens"] <= r2["tokens"] + 50
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +358,76 @@ class TestSearchRanking:
         top_names = [s.qualified_name for s in results[:3]]
         assert any("get" in n.lower() or "Config" in n for n in top_names)
 
+    def test_stop_words_filtered(self):
+        """Task verbs and common words should not dominate search results."""
+        from tempograph.builder import build_graph
+        g = build_graph(REPO_PATH, exclude_dirs=["archive"])
+        # "fix the build graph function" should match build_graph, not random .fix() methods
+        results = g.search_symbols("fix the build graph function")
+        top_names = [s.qualified_name for s in results[:5]]
+        assert any("build_graph" in n for n in top_names), f"build_graph not in top 5: {top_names}"
+
+    def test_longer_tokens_weighted_higher(self):
+        """Longer, more specific tokens should score higher than short ones."""
+        from tempograph.builder import build_graph
+        g = build_graph(REPO_PATH, exclude_dirs=["archive"])
+        results = g.search_symbols("parser complexity")
+        top_names = [s.qualified_name for s in results[:5]]
+        # Should find complexity-related symbols in parser, not random matches
+        assert any("complex" in n.lower() or "parser" in n.lower() for n in top_names)
+
+    def test_conjunction_bonus_multi_token(self):
+        """Symbols matching multiple query tokens should rank above single-token matches."""
+        from tempograph.builder import build_graph
+        g = build_graph(REPO_PATH, exclude_dirs=["archive"])
+        scored = g.search_symbols_scored("render dead code")
+        # render_dead_code matches all 3 tokens — should be top result
+        assert scored, "Expected results for 'render dead code'"
+        top_sym = scored[0][1]
+        assert "dead" in top_sym.name.lower() or "dead" in top_sym.qualified_name.lower(), \
+            f"Expected dead_code symbol at top, got: {top_sym.qualified_name}"
+        # Verify multi-match has higher score than a symbol matching only one token
+        if len(scored) > 5:
+            top_score = scored[0][0]
+            fifth_score = scored[4][0]
+            assert top_score > fifth_score, "Top score should be significantly higher"
+
+    def test_seed_quality_gate_filters_low_relevance(self):
+        """Focus mode should filter out low-scoring seeds instead of showing noise."""
+        from tempograph.render import render_focused
+        from tempograph.builder import build_graph
+        g = build_graph(REPO_PATH, exclude_dirs=["archive"])
+        output = render_focused(g, "render overview architecture")
+        # Should focus on render-related symbols, not random matches
+        assert "render" in output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Implements edge detection
+# ---------------------------------------------------------------------------
+
+class TestImplementsEdges:
+    def test_ts_implements(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language, EdgeKind
+        code = b'class Svc implements Printable, Loggable { print() {} log() {} }'
+        p = FileParser('test.ts', Language.TYPESCRIPT, code)
+        _, edges, _ = p.parse()
+        impl = {e.target_id for e in edges if e.kind == EdgeKind.IMPLEMENTS}
+        assert "Printable" in impl, f"Missing Printable: {impl}"
+        assert "Loggable" in impl, f"Missing Loggable: {impl}"
+
+    def test_ts_extends_vs_implements(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language, EdgeKind
+        code = b'class Report extends Document implements Exportable { export() {} }'
+        p = FileParser('test.ts', Language.TYPESCRIPT, code)
+        _, edges, _ = p.parse()
+        inherits = {e.target_id for e in edges if e.kind == EdgeKind.INHERITS}
+        impl = {e.target_id for e in edges if e.kind == EdgeKind.IMPLEMENTS}
+        assert "Document" in inherits
+        assert "Exportable" in impl
+
 
 # ---------------------------------------------------------------------------
 # Import type skipping
@@ -452,6 +537,29 @@ class TestJavaParser:
         targets = {e.target_id for e in inherit_edges}
         assert "Animal" in targets or any("Animal" in t for t in targets)
 
+    def test_implements_edges(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language, EdgeKind
+        code = b'class Svc implements Serializable, Comparable<Svc> { public int compareTo(Svc o) { return 0; } }'
+        p = FileParser('Svc.java', Language.JAVA, code)
+        _, edges, _ = p.parse()
+        impl_edges = [e for e in edges if e.kind == EdgeKind.IMPLEMENTS]
+        targets = {e.target_id for e in impl_edges}
+        assert "Serializable" in targets, f"Missing Serializable: {targets}"
+        assert "Comparable" in targets, f"Missing Comparable: {targets}"
+
+    def test_overloaded_constructors(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b'class Svc {\n  Svc() {}\n  Svc(int x) {}\n  Svc(String s, int n) {}\n}'
+        p = FileParser('Svc.java', Language.JAVA, code)
+        syms, _, _ = p.parse()
+        ctors = [s for s in syms if s.qualified_name == "Svc.Svc"]
+        assert len(ctors) == 3, f"Expected 3 constructors, got {len(ctors)}"
+        # All must have unique IDs
+        ids = {s.id for s in ctors}
+        assert len(ids) == 3, f"Constructor IDs not unique: {ids}"
+
 
 # ---------------------------------------------------------------------------
 # C# parser
@@ -499,13 +607,26 @@ class TestCSharpParser:
         syms, edges, _ = p.parse()
         assert any(s.qualified_name == "Svc.Svc" for s in syms)
 
-    def test_property(self):
+    def test_overloaded_constructors(self):
         from tempograph.parser import FileParser
         from tempograph.types import Language
+        code = b'class Svc {\n  public Svc() { }\n  public Svc(int x) { }\n  public Svc(string s) { }\n}'
+        p = FileParser('Svc.cs', Language.CSHARP, code)
+        syms, _, _ = p.parse()
+        ctors = [s for s in syms if s.qualified_name == "Svc.Svc"]
+        assert len(ctors) == 3, f"Expected 3 constructors, got {len(ctors)}"
+        ids = {s.id for s in ctors}
+        assert len(ids) == 3, f"Constructor IDs not unique: {ids}"
+
+    def test_property(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language, SymbolKind
         code = b'class User { public string Name { get; set; } }'
         p = FileParser('User.cs', Language.CSHARP, code)
         syms, _, _ = p.parse()
-        assert any(s.qualified_name == "User.Name" for s in syms)
+        prop = next((s for s in syms if s.qualified_name == "User.Name"), None)
+        assert prop is not None
+        assert prop.kind == SymbolKind.PROPERTY
 
     def test_using_directives(self):
         from tempograph.parser import FileParser
@@ -527,12 +648,14 @@ class TestCSharpParser:
 
     def test_inheritance(self):
         from tempograph.parser import FileParser
-        from tempograph.types import Language
+        from tempograph.types import Language, EdgeKind
         code = b'class Dog : Animal, IRunnable { void Bark() {} }'
         p = FileParser('Dog.cs', Language.CSHARP, code)
         _, edges, _ = p.parse()
-        inherit_targets = {e.target_id for e in edges if e.kind.value == "inherits"}
-        assert "Animal" in inherit_targets
+        inherit_targets = {e.target_id for e in edges if e.kind == EdgeKind.INHERITS}
+        impl_targets = {e.target_id for e in edges if e.kind == EdgeKind.IMPLEMENTS}
+        assert "Animal" in inherit_targets, f"Missing Animal in inherits: {inherit_targets}"
+        assert "IRunnable" in impl_targets, f"Missing IRunnable in implements: {impl_targets}"
 
     def test_namespace(self):
         from tempograph.parser import FileParser

@@ -1,7 +1,7 @@
-"""MCP server — 15 tools for agent codebase understanding.
+"""MCP server — 16 tools for agent codebase understanding.
 
 Each tool returns structured JSON (status/data/tokens/duration) or plain text.
-Standardized error codes: REPO_NOT_FOUND, NOT_GIT_REPO, NO_MATCH, BUILD_FAILED, BUILD_TIMEOUT.
+Standardized error codes: REPO_NOT_FOUND, NOT_GIT_REPO, NO_MATCH, BUILD_FAILED, BUILD_TIMEOUT, RENDER_FAILED.
 """
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from .render import (
     render_map,
     render_overview,
     render_prepare,
+    render_skills,
     render_symbols,
 )
 from .telemetry import is_empty_result, log_feedback, log_usage
@@ -42,6 +43,8 @@ mcp = FastMCP("tempograph")
 _graphs: dict[str, Tempo] = {}
 _build_times: dict[str, float] = {}
 _graph_excludes: dict[str, list[str]] = {}  # repo_path → exclude_dirs used
+_graph_timestamps: dict[str, float] = {}  # repo_path → time.time() when built
+_CACHE_TTL = 30  # seconds — rebuild if graph is older than this
 
 # ── Error codes ───────────────────────────────────────────────────
 
@@ -107,13 +110,16 @@ def _get_or_build_graph(repo_path: str, exclude_dirs: list[str] | None = None,
                         timeout: int = 120) -> Tempo | str:
     """Build or retrieve cached graph. Returns Tempo on success, error code string on failure."""
     p = str(Path(repo_path).resolve())
-    # Rebuild if exclude_dirs changed
-    if p in _graphs and _graph_excludes.get(p) == (exclude_dirs or []):
+    # Reuse cached graph if same excludes and within TTL
+    if (p in _graphs
+            and _graph_excludes.get(p) == (exclude_dirs or [])
+            and time.time() - _graph_timestamps.get(p, 0) < _CACHE_TTL):
         return _graphs[p]
     try:
         start = time.time()
         _graphs[p] = build_graph(p, exclude_dirs=exclude_dirs)
         _graph_excludes[p] = exclude_dirs or []
+        _graph_timestamps[p] = time.time()
         elapsed = time.time() - start
         _build_times[p] = elapsed
         return _graphs[p]
@@ -151,7 +157,11 @@ def _run_tool(tool_name: str, repo_path: str, output_format: str, render_fn,
         return _error(code, msg or "Graph build failed", output_format)
 
     graph = result
-    output = render_fn(graph)
+    try:
+        output = render_fn(graph)
+    except Exception as exc:
+        elapsed = time.time() - start
+        return _error("RENDER_FAILED", f"{tool_name} render error: {exc}", output_format)
     elapsed = time.time() - start
     tokens = count_tokens(output)
     _log_tool(tool_name, p, output, elapsed, **log_extra)
@@ -220,6 +230,8 @@ def focus(repo_path: str, query: str, max_tokens: int = 4000, exclude_dirs: str 
     Examples: "authentication middleware", "Canvas command palette",
     "database migrations", "AI assistant toolbar"
     """
+    if not query.strip():
+        return _error(INVALID_PARAMS, "query is required — describe what you're working on", output_format)
     return _run_tool("focus", repo_path, output_format,
                      lambda g: render_focused(g, query, max_tokens=max_tokens),
                      exclude_dirs=exclude_dirs, query=query)
@@ -316,6 +328,7 @@ def diff_context(repo_path: str, changed_files: str = "", scope: str = "unstaged
             branch = current_branch(p) or "unknown"
             msg = f"No changed files (scope={scope}, branch={branch})."
             elapsed = time.time() - start
+            _log_tool("diff_context", p, msg, elapsed, scope=scope)
             return _success(msg, count_tokens(msg), elapsed, output_format)
 
     header = f"Impact of {len(files)} changed file{'s' if len(files) != 1 else ''}:\n"
@@ -329,14 +342,17 @@ def diff_context(repo_path: str, changed_files: str = "", scope: str = "unstaged
 # ── Tool 7: Dead code ───────────────────────────────────────────────
 
 @mcp.tool()
-def dead_code(repo_path: str, exclude_dirs: str = "", output_format: str = "text") -> str:
+def dead_code(repo_path: str, max_tokens: int = 8000, exclude_dirs: str = "", output_format: str = "text") -> str:
     """Find exported symbols never referenced by other files.
     Potential cleanup targets — unused exports, orphaned functions,
     dead interfaces. Respects Python __all__ for precise export tracking.
 
+    max_tokens: cap output size (default 8000) to prevent context overflow
     exclude_dirs: comma-separated directory prefixes to skip
     output_format: "text" (default) or "json" for structured response"""
-    return _run_tool("dead_code", repo_path, output_format, render_dead_code, exclude_dirs=exclude_dirs)
+    return _run_tool("dead_code", repo_path, output_format,
+                     lambda g: render_dead_code(g, max_tokens=max_tokens),
+                     exclude_dirs=exclude_dirs)
 
 
 # ── Tool 8: Lookup ───────────────────────────────────────────────────
@@ -349,6 +365,7 @@ def lookup(repo_path: str, question: str, exclude_dirs: str = "", output_format:
     - "what does X call?" / "dependencies of X"
     - "what files import X?"
     - "what renders X?" (JSX/component tree)
+    - "what implements X?" / "what extends X?"
 
     Falls back to fuzzy symbol search if no pattern matches.
     Typically ~100-500 tokens.
@@ -477,12 +494,15 @@ def report_feedback(repo_path: str, mode: str, helpful: bool, note: str = "") ->
     """Report whether tempograph output was helpful for your current task.
     Call after using any tempograph tool. Helps improve the product.
 
-    mode: which tool you used (overview, focus, hotspots, blast_radius, diff_context, dead_code, lookup, symbols, file_map, dependencies, architecture, stats)
+    mode: which tool you used (index_repo, overview, focus, hotspots, blast_radius, diff_context, dead_code, lookup, symbols, file_map, dependencies, architecture, stats, prepare_context, learn_recommendation)
     helpful: true if the output helped, false if not
     note: optional — what was missing or what worked well
     """
+    p, err = _validate_repo(repo_path)
+    if err:
+        return _error(err, f"Directory not found: {repo_path}", "text")
     log_feedback(
-        repo_path,
+        p,
         mode=mode,
         helpful=helpful,
         note=note,
@@ -512,9 +532,13 @@ def learn_recommendation(repo_path: str, task_type: str = "", output_format: str
                       "Learning engine not available. Install tempo package: pip install -e .",
                       output_format)
 
+    p, err = _validate_repo(repo_path)
+    if err:
+        return _error(err, f"Directory not found: {repo_path}", output_format)
+
     start = time.time()
-    infer_from_telemetry(repo_path)
-    mem = TaskMemory(repo_path)
+    infer_from_telemetry(p)
+    mem = TaskMemory(p)
 
     if task_type:
         rec = mem.get_recommendation(task_type)
@@ -560,6 +584,32 @@ def prepare_context(repo_path: str, task: str, task_type: str = "",
     return _run_tool("prepare_context", repo_path, output_format,
                      lambda g: render_prepare(g, task, max_tokens=max_tokens, task_type=task_type),
                      exclude_dirs=exclude_dirs, task=task, task_type=task_type)
+
+
+# ── Tool 17: Skills / pattern catalog ────────────────────────────
+
+@mcp.tool()
+def get_patterns(repo_path: str, query: str = "", max_tokens: int = 4000,
+                 exclude_dirs: str = "", output_format: str = "text") -> str:
+    """Get coding patterns and conventions for this codebase.
+
+    Returns a catalog of naming conventions, structural patterns, module roles,
+    and repeated idioms. Use this before writing new code to ensure you follow
+    the project's existing conventions.
+
+    query: optional filter (e.g. "render", "plugin", "test", "handler")
+    max_tokens: cap output size (default 4000)
+    exclude_dirs: comma-separated directory prefixes to skip
+    output_format: "text" (default) or "json"
+
+    Examples:
+    - get_patterns(".")                          → full convention catalog
+    - get_patterns(".", query="plugin")          → plugin-related patterns
+    - get_patterns(".", query="render")          → rendering conventions
+    """
+    return _run_tool("get_patterns", repo_path, output_format,
+                     lambda g: render_skills(g, query, max_tokens=max_tokens),
+                     exclude_dirs=exclude_dirs, query=query)
 
 
 def run_server():
