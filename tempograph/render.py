@@ -517,16 +517,25 @@ def _monolith_neighborhood(graph: Tempo, seed: Symbol) -> list[str]:
                 dist = abs(s.line_start - seed.line_start)
                 lines.append(f"    {rel} {s.kind.value} {s.name} L{s.line_start} ({dist}L away)")
 
-    # Top-level symbols by size (helps orient in the file)
-    top_level = sorted(
-        [s for s in all_syms if s.parent_id is None and s.line_count > 20],
-        key=lambda s: -s.line_count,
-    )[:8]
-    if top_level:
-        lines.append(f"  landmarks:")
-        for s in top_level:
-            marker = " ← YOU" if s.id == seed.id else ""
-            lines.append(f"    {s.kind.value} {s.name} L{s.line_start}-{s.line_end} ({s.line_count}L){marker}")
+    # Top-level symbols by size (helps orient in the file).
+    # Suppress for top-of-file imports/variables: they sit at L1-20, so all landmarks
+    # are "below" and semantically unrelated — showing them misleads the model into
+    # predicting files associated with the landmark instead of the matched symbol.
+    file_lines = fi.line_count if fi else 1
+    is_top_import = (
+        seed.kind.value in ("variable", "imports")
+        and seed.line_start <= max(20, file_lines * 0.05)
+    )
+    if not is_top_import:
+        top_level = sorted(
+            [s for s in all_syms if s.parent_id is None and s.line_count > 20],
+            key=lambda s: -s.line_count,
+        )[:8]
+        if top_level:
+            lines.append(f"  landmarks:")
+            for s in top_level:
+                marker = " ← YOU" if s.id == seed.id else ""
+                lines.append(f"    {s.kind.value} {s.name} L{s.line_start}-{s.line_end} ({s.line_count}L){marker}")
 
     return lines
 
