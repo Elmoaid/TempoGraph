@@ -440,6 +440,12 @@ class FileParser:
                                 self._handle_js_function(prop, exported=True)
 
     def _handle_js_export(self, node: Node) -> None:
+        # Check if this is a re-export from another module: `export * from '...'` or `export { X } from '...'`
+        has_source = any(c.type == "string" for c in node.children)
+        if has_source:
+            # Re-export: treat as an import edge so importers graph stays correct
+            self.imports.append(_node_text(node, self.source).strip())
+            return
         for child in node.children:
             t = child.type
             if t in ("function_declaration", "generator_function_declaration"):
