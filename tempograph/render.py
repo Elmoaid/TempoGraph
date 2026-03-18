@@ -424,6 +424,14 @@ def _extract_cl_keywords(task: str) -> list[str]:
         # The compound (camelCase username) is meaningless as a task keyword; mine body instead.
         # Evidence: falcon "CygnusNetworks-master" / "hooblei-master" → body has "byte ranges" / "context_type".
         _is_fork_master = leaf.endswith("-master") or leaf.endswith("_master")
+        # GitHub auto-generated "username-patch-N" branches: strip the username prefix.
+        # Pattern: single-word (no hyphens) username followed by "-patch-\d+".
+        # Without this, CamelCase extraction yields the username as a priority keyword.
+        # Evidence: "Freezerburn-patch-1-reb" → "Freezerburn" keyword → false path match.
+        _gh_patch_m = re.match(r'^([a-z][a-z0-9]*)-patch-\d+', leaf)
+        if _gh_patch_m:
+            branch = branch[len(_gh_patch_m.group(1)) + 1:]  # strip "Username-" prefix
+            _is_ticket = True  # remaining "patch-N-..." → mine body for actual keywords
         task = branch + ('\n' + body if (_is_ticket or not _branch_has_compound or _is_fork_master) and body else '')
     else:
         task = re.sub(r'^Merge (?:branch|pull request)[^\n]*\n?', '', task, flags=re.IGNORECASE)
