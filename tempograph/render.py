@@ -374,11 +374,14 @@ def _extract_cl_keywords(task: str) -> list[str]:
         leaf = branch.lower().split('/')[-1]
         if leaf in _TRUNK_BRANCHES:
             return []
-        _DOC_PREFIXES = ("docs-", "doc-", "readme-", "changelog-", "documentation-")
-        _DOC_SUFFIXES = ("-docs", "-doc", "-readme", "-changelog")
         branch_lower = branch.lower()
-        if (any(leaf.startswith(p) for p in _DOC_PREFIXES)
-                or any(leaf.endswith(s) for s in _DOC_SUFFIXES)
+        # "docs" as a hyphen/underscore-separated component anywhere in branch name.
+        # Matches: docs-view, view-docs, 5309-docs-view (DRF-style), docs/viewset.
+        # Does NOT match: docstring-update (component is "docstring", not "docs").
+        _DOC_COMPONENT = re.compile(r'(?:^|[-_/])docs(?:[-_/]|$)')
+        if (_DOC_COMPONENT.search(leaf)
+                or any(re.search(r'(?:^|[-_/])' + kw + r'(?:[-_/]|$)', leaf)
+                       for kw in ("readme", "changelog", "documentation"))
                 or branch_lower.startswith("docs/")
                 or branch_lower.startswith("doc/")):
             return []
