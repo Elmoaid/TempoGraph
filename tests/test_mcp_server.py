@@ -516,6 +516,19 @@ class TestPrepareContext:
         # by <=5 threshold, output should be minimal (no noisy KEY FILES (path match))
         assert isinstance(output, str)  # function completes without error
 
+    def test_version_bump_branch_produces_no_keywords(self):
+        # Version bump PRs should not inject context — "version", "bump", "dependencies"
+        # are not code symbol names. Prevents fastapi fix-10 style harm (d=-0.513).
+        from tempograph.render import _extract_cl_keywords
+        # Version branch
+        task1 = "Merge pull request #14 from encode/version-0.1.5\nVersion 0.1.5"
+        kw1 = _extract_cl_keywords(task1)
+        assert kw1 == [], f"Version branch should yield empty keywords: {kw1}"
+        # Pin dependencies
+        task2 = "Merge pull request #11 from tiangolo/fix-10\nPin versions of dependencies and bump version"
+        kw2 = _extract_cl_keywords(task2)
+        assert kw2 == [], f"Version/deps body should yield empty keywords: {kw2}"
+
     def test_github_patch_branch_strips_username(self):
         # GitHub auto-generated "username-patch-N" branches should not yield
         # the username as a priority CamelCase keyword.
