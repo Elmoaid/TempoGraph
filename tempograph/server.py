@@ -678,7 +678,7 @@ def prepare_context(repo_path: str, task: str, task_type: str = "",
       (for adaptive injection). If overlap(baseline ∩ KEY FILES) ≥ 50%, returns ""
       (model already knows the relevant files — skip re-prediction, save tokens).
       If overlap < 50%, returns full context (model needs the structural graph bridge).
-      Bench evidence (Phase 5.27, n=83): overlap<0.5 → avg +0.30–0.45 F1 gain per case.
+      Bench evidence (Phase 5.27, n=83): overlap<0.5 → avg +0.08 F1 gain per injected case.
     output_format: "text" (default) or "json" for structured response
 
     Returns: overview summary + focused context + KEY FILES + hotspot warnings,
