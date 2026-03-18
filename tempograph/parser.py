@@ -454,6 +454,17 @@ class FileParser:
                 self._handle_js_type_alias(child, exported=True)
             elif t == "enum_declaration":
                 self._handle_js_enum(child, exported=True)
+            elif t == "identifier":
+                # `export default settle` — mark pre-defined symbol as exported
+                self._cjs_exports.add(_node_text(child, self.source))
+            elif t == "export_clause":
+                # `export { foo, bar }` — mark pre-defined symbols as exported
+                for spec in child.children:
+                    if spec.type == "export_specifier":
+                        # `foo` or `foo as bar` — export the local name (first identifier)
+                        local = spec.child_by_field_name("name") or (spec.children[0] if spec.children else None)
+                        if local and local.type == "identifier":
+                            self._cjs_exports.add(_node_text(local, self.source))
 
     def _handle_js_function(self, node: Node, *, exported: bool = False, name_override: str | None = None) -> None:
         name_node = node.child_by_field_name("name")
