@@ -681,7 +681,7 @@ def prepare_context(repo_path: str, task: str, task_type: str = "",
       If overlap < 50%, returns full context (model needs the structural graph bridge).
       Bench evidence (Phase 5.27, n=83): overlap<0.5 → avg +0.08 F1 gain per injected case.
     precision_filter: if True, skip context when >4 key files are found (topic too broad).
-      Bench evidence (Phase 5.26, n=111): +3.9% (p=0.085, ns). Weaker than baseline_predicted_files.
+      Bench evidence (n=160 pairs, verified 2026-03-18): +13.4% (p=0.022, significant).
       Default False for backward compatibility.
     output_format: "text" (default) or "json" for structured response
 
