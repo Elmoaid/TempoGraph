@@ -508,6 +508,11 @@ def _extract_cl_keywords(task: str) -> list[str]:
         "accidentally", "broke", "broken", "wrongly", "correctly", "incorrectly",
         "properly", "caused", "noticed", "realized", "discovered", "detected",
         "missing", "extra", "leading", "trailing",
+        # HTTP/browser prose words that displace domain identifiers from the top-3 cap.
+        # Evidence: falcon 3431ac32 "fix(Response): Instruct browser to not cache cookies"
+        # → 'Instruct' + 'browser' fill slots 2-3, blocking 'cookies' (the correct target).
+        # With these skipped: effective_keywords = ['Response', 'cache', 'cookies'] → cookies found.
+        "instruct", "browser",
         # Auxiliary/linking verbs — never symbol names
         "being", "were", "been", "have", "having", "does", "doing", "done",
         "getting", "giving", "going", "making", "taking", "using", "using",
