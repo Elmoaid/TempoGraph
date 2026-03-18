@@ -341,15 +341,24 @@ def _extract_focus_files(focus_output: str, task_keywords: list[str] | None = No
         has_kw = any(kw in stem for kw in kw_lower if len(kw) > 3)
         return not has_kw and (freq[path] / total_mentions) > 0.30
 
+    # Barrel/re-export files are almost never the changed file — always demote.
+    # They appear everywhere in the graph because everything imports from them.
+    _BARREL_STEMS = {"__init__", "index", "mod", "exports", "main"}
+
     def _sort_key(path: str) -> tuple[int, int, int]:
         lower = path.lower()
+        filename = lower.rsplit("/", 1)[-1]
+        stem = filename.rsplit(".", 1)[0]
+        # Barrel files (re-exports): push to tier 2 regardless of frequency.
+        # They dominate the call graph but rarely need direct changes.
+        if stem in _BARREL_STEMS and any(filename.endswith(ext) for ext in (".py", ".js", ".ts")):
+            return (2, 1, -freq[path])
         if any(x in lower for x in ("example", "tutorial", "demo", "sample")):
             tier = 2
         elif any(x in lower for x in ("test", "spec", "fixture")):
             tier = 1
         else:
             tier = 0
-        stem = lower.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         hub_penalty = 1 if _is_hub(path, stem) else 0
         kw_rank = 0 if kw_lower and any(kw in stem for kw in kw_lower if len(kw) > 3) else 1
         return (tier + hub_penalty, kw_rank, -freq[path])
@@ -403,6 +412,7 @@ def _extract_cl_keywords(task: str) -> list[str]:
         body = task[task.find('\n')+1:].strip() if '\n' in task else ''
         body = re.sub(r'https?://\S+', '', body)
         body = re.sub(r'^[\w-]+:\s+.*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'@[a-zA-Z][a-zA-Z0-9_-]*', '', body)  # strip GitHub @mentions (usernames ≠ code)
         body = body.strip()
         # Mine the PR body for additional keywords when the branch name is not self-describing:
         # - Ticket-reference branches (issue12345, fix-1587) have numeric names → body is the task.
@@ -462,6 +472,12 @@ def _extract_cl_keywords(task: str) -> list[str]:
         "fixed", "improved", "updated", "added", "removed", "changed",
         "fixes", "improves", "updates", "usage", "internal", "external",
         "fork", "syncing", "sync", "backport", "rebase", "cherry", "pick",
+        # PR body prose — common natural language words that appear in PR descriptions
+        # but are never code symbol names. These slip through when body-mining is active.
+        "implement", "implements", "implementation", "related", "regarding",
+        "contribution", "contribute", "thanks", "introduces", "introduce",
+        "follow", "follows", "following", "address", "addresses", "addressing",
+        "resolves", "resolve", "closes", "close", "based", "instead", "rather",
         # Conventional commit type tokens (belt-and-suspenders for any that slip through)
         "feat", "chore", "refactor", "revert", "perf", "style",
     }
