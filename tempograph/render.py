@@ -366,6 +366,7 @@ def _extract_cl_keywords(task: str) -> list[str]:
     """
     import re
     _TRUNK_BRANCHES = frozenset({"master", "main", "develop", "development", "stable", "release"})
+    _cc_scopes: list[str] = []  # conventional commit scopes extracted before stripping
     m = (re.search(r'Merge pull request #\d+ from [^/\s]+/(\S+)', task)
          or re.search(r'Merge pull request \S+#\d+ from [^/\s]+/(\S+)', task))
     if m:
@@ -407,6 +408,11 @@ def _extract_cl_keywords(task: str) -> list[str]:
         task = branch + ('\n' + body if (_is_ticket or not _branch_has_compound or _is_fork_master) and body else '')
     else:
         task = re.sub(r'^Merge (?:branch|pull request)[^\n]*\n?', '', task, flags=re.IGNORECASE)
+        # Extract conventional commit scopes BEFORE stripping them.
+        # `feat(StreamMiddleware):`, `perf(Response):` → scope names the changed component.
+        _cc_scopes = re.findall(
+            r'(?:feat|fix|chore|refactor|style|perf|ci|build|docs|test|revert)\(([^)]+)\)',
+            task, re.IGNORECASE)
         # Strip conventional commit type prefix (feat:, fix:, chore:, refactor(scope):, etc.)
         # before keyword extraction — these prefixes are commit metadata, not code identifiers.
         task = re.sub(r'^(?:feat|fix|chore|refactor|style|perf|ci|build|docs|test|revert)(?:\([^)]*\))?!?:\s*', '', task, flags=re.IGNORECASE)
@@ -452,6 +458,22 @@ def _extract_cl_keywords(task: str) -> list[str]:
     # E.g. "deprecate `should_ignore_error`" → extract "should_ignore_error" first.
     for backtick_id in re.findall(r'`([a-zA-Z_][a-zA-Z0-9_]{2,})`', task):
         _record(backtick_id, priority)
+
+    # Conventional commit scopes are high-priority: `feat(StreamMiddleware):`, `perf(Response):`.
+    # Extract scope even if it's a common English word (e.g. "Response") since in this context
+    # it names the changed component, not a generic term.
+    # Conventional commit scopes are high-priority: `feat(StreamMiddleware):`, `perf(Response):`.
+    # For Merge-PR tasks (if m:), search the (modified) task text.
+    # For bare commits (else:), scopes were saved into _cc_scopes before stripping.
+    _inline_scopes = re.findall(
+        r'(?:feat|fix|chore|refactor|style|perf|ci|build|docs|test|revert)\(([^)]+)\)',
+        task, re.IGNORECASE)
+    for raw in _inline_scopes + _cc_scopes:
+        for scope_part in raw.split(','):
+            scope_part = scope_part.strip()
+            if len(scope_part) > 2 and scope_part.lower() not in seen:
+                seen.add(scope_part.lower())
+                priority.append(scope_part)
 
     lines = task.split('\n', 1)
     branch_text = lines[0]
@@ -1470,7 +1492,7 @@ def _extract_name_from_question(question: str) -> str:
 
 def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: str = "",
                    baseline_predicted_files: list[str] | None = None,
-                   precision_filter: bool = False) -> str:
+                   precision_filter: bool = True) -> str:
     """Batch context preparation: overview + focus + hotspots + diff in one token-budgeted output.
 
     If L2 learned insights exist for task_type, includes extra modes (dead code, quality)
