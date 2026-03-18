@@ -447,6 +447,28 @@ fn detect_repo() -> TempoResult {
     }
 }
 
+#[tauri::command]
+fn report_feedback(repo_path: String, mode: String, helpful: bool, note: String) -> TempoResult {
+    let helpful_str = if helpful { "true" } else { "false" };
+    let mut cmd = Command::new("python3");
+    cmd.arg("-m").arg("tempograph").arg("feedback")
+        .arg(&repo_path).arg(&mode).arg(helpful_str);
+    if !note.is_empty() {
+        cmd.arg(&note);
+    }
+    match cmd.output() {
+        Ok(output) => {
+            let out = String::from_utf8_lossy(&output.stdout).to_string();
+            TempoResult { success: output.status.success(), output: out, mode: "feedback".into() }
+        }
+        Err(e) => TempoResult {
+            success: false,
+            output: format!("Failed to report feedback: {}", e),
+            mode: "feedback".into(),
+        },
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -466,6 +488,7 @@ pub fn run() {
             save_output,
             get_home_dir,
             write_file,
+            report_feedback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
