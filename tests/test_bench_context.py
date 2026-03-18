@@ -711,6 +711,27 @@ class TestNoMatchPathFallback:
         # 'bandit' and 'security' and 'static' are not in ['sanic/app.py', 'sanic/server.py']
         assert result == ""
 
+    def test_camelcase_path_fallback(self):
+        """CamelCase keyword split: 'RequestStreamingSupport' → 'streaming' matches path."""
+        from unittest.mock import MagicMock, patch
+        from bench.changelocal.context import get_tempograph_context
+
+        paths = ["sanic/streaming.py", "sanic/app.py", "sanic/server.py"]
+        graph = MagicMock()
+        graph.symbols = {f"sym_{i}": MagicMock(file_path=p) for i, p in enumerate(paths)}
+
+        with patch("bench.changelocal.context.build_graph", return_value=graph), \
+             patch("bench.changelocal.context.render_focused", return_value="No symbols matching 'RequestStreamingSupport'"), \
+             patch("bench.changelocal.context.render_overview", return_value=""), \
+             patch("bench.changelocal.context.render_blast_radius", return_value=""):
+            result = get_tempograph_context(
+                MagicMock(),
+                "Merge pull request #1423 from yunstanford/request-streaming-support",
+            )
+        # 'Streaming' component (len≥4) matches 'sanic/streaming.py' → path fallback
+        assert "KEY FILES (path match):" in result
+        assert "sanic/streaming.py" in result
+
 
 class TestPrecisionFilter:
     """precision_filter=True skips context when >4 unique key files are found."""
