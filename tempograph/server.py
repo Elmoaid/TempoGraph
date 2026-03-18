@@ -658,7 +658,7 @@ def learn_recommendation(repo_path: str, task_type: str = "", output_format: str
 def prepare_context(repo_path: str, task: str, task_type: str = "",
                     max_tokens: int = 6000, exclude_dirs: str = "",
                     baseline_predicted_files: list[str] | None = None,
-                    precision_filter: bool = True,
+                    precision_filter: bool = False,
                     output_format: str = "text") -> str:
     """One-shot context preparation for a task. Runs the optimal combination of
     tools and returns a single, token-budgeted response. Use this instead of
@@ -679,11 +679,12 @@ def prepare_context(repo_path: str, task: str, task_type: str = "",
       (for adaptive injection). If overlap(baseline ∩ KEY FILES) ≥ 50%, returns ""
       (model already knows the relevant files — skip re-prediction, save tokens).
       If overlap < 50%, returns full context (model needs the structural graph bridge).
-      Bench: python3 -m bench.changelocal.analyze --conditions baseline,tempograph_adaptive
-      Cost: 2× inference for ~37% of tasks.
+      Bench (canonical): python3 -m bench.changelocal.analyze --canonical --conditions baseline,tempograph_adaptive
+      Canonical result (n=159 Python+JS): +6.9% F1 (p=0.035*). Cost: 2× inference for ~37% of tasks.
     precision_filter: if True, skip context when >4 key files are found (topic too broad).
-      Bench: python3 -m bench.changelocal.analyze --conditions baseline,tempograph_precision
-      Zero extra inference cost. Default True.
+      Bench (canonical): python3 -m bench.changelocal.analyze --canonical --conditions baseline,tempograph_precision
+      Canonical result (n=159 Python+JS): +3.7% F1 (p=0.21, ns). Helps on high-baseline repos.
+      Default False.
     output_format: "text" (default) or "json" for structured response
 
     Returns: overview summary + focused context + KEY FILES + hotspot warnings,
