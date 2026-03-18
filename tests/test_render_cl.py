@@ -1,6 +1,6 @@
 """Tests for change-localization helpers in render.py."""
 import pytest
-from tempograph.render import _extract_cl_keywords, _is_change_localization
+from tempograph.render import _extract_cl_keywords, _is_change_localization, _extract_focus_files
 
 
 class TestExtractClKeywords:
@@ -106,3 +106,57 @@ class TestIsChangeLocalization:
 
     def test_empty_task_type_no_match(self):
         assert _is_change_localization("write a function to sort a list", "") is False
+
+
+class TestExtractFocusFiles:
+    def _make_focus_output(self, paths: list[str], repetitions: dict[str, int] | None = None) -> str:
+        """Build synthetic focus output mentioning each path the given number of times."""
+        lines = []
+        for path in paths:
+            count = (repetitions or {}).get(path, 1)
+            for _ in range(count):
+                lines.append(f"  {path} (callers, imports)")
+        return "\n".join(lines)
+
+    def test_source_files_ranked_first(self):
+        output = self._make_focus_output(["tests/test_foo.py", "src/foo.py"])
+        result = _extract_focus_files(output)
+        assert result.index("src/foo.py") < result.index("tests/test_foo.py")
+
+    def test_example_files_ranked_last(self):
+        output = self._make_focus_output(["examples/demo.py", "src/core.py"])
+        result = _extract_focus_files(output)
+        assert result.index("src/core.py") < result.index("examples/demo.py")
+
+    def test_hub_file_demoted(self):
+        # Hub: fastify.js appears in 50%+ of mentions → should be demoted
+        # when there are enough total mentions (>6)
+        paths = ["fastify.js"] * 5 + ["lib/reply.js", "lib/route.js", "lib/schemas.js",
+                                       "lib/hooks.js", "lib/errors.js", "lib/validation.js",
+                                       "lib/middleware.js", "lib/lifecycles.js"]
+        output = "\n".join(f"  {p}" for p in paths)
+        result = _extract_focus_files(output)
+        # fastify.js appears 5/13 = 38% of mentions → hub → demoted
+        if "fastify.js" in result:
+            assert result.index("fastify.js") > 0  # not first
+
+    def test_keyword_matched_hub_file_not_demoted(self):
+        # If hub file's stem matches a keyword, it's NOT demoted
+        paths = ["fastify.js"] * 5 + ["lib/reply.js", "lib/route.js", "lib/schemas.js",
+                                       "lib/hooks.js", "lib/errors.js", "lib/validation.js",
+                                       "lib/middleware.js", "lib/lifecycles.js"]
+        output = "\n".join(f"  {p}" for p in paths)
+        result = _extract_focus_files(output, task_keywords=["fastify"])
+        # With keyword match, fastify.js should NOT be demoted
+        assert result[0] == "fastify.js"
+
+    def test_caps_at_15_files(self):
+        output = self._make_focus_output([f"src/file{i}.py" for i in range(20)])
+        result = _extract_focus_files(output)
+        assert len(result) <= 15
+
+    def test_frequency_tiebreaker(self):
+        output = self._make_focus_output(["src/bar.py"], {"src/bar.py": 3}) + "\n" + \
+                 self._make_focus_output(["src/foo.py"], {"src/foo.py": 1})
+        result = _extract_focus_files(output)
+        assert result[0] == "src/bar.py"  # higher frequency first
