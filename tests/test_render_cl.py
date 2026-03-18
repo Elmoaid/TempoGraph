@@ -118,6 +118,24 @@ class TestExtractClKeywords:
         assert "StreamMiddleware" in kws
         assert kws.index("StreamMiddleware") == 0
 
+    def test_github_patch_branch_strips_username(self):
+        # GitHub web-edit branches "Username-patch-N-..." should strip the username.
+        # Evidence: "Freezerburn-patch-1-reb" → old code extracted "Freezerburn" as CamelCase
+        # priority keyword, overriding body keywords ("cookies") that identify the real change.
+        kws = _extract_cl_keywords(
+            "Merge pull request #634 from kgriffs/Freezerburn-patch-1-reb\nFix cookies handling"
+        )
+        assert "Freezerburn" not in kws
+        assert "cookies" in kws  # body keyword should be present
+
+    def test_github_patch_branch_lowercase_username(self):
+        # Lowercase username case: "someuser-patch-3" → strip "someuser", mine body.
+        kws = _extract_cl_keywords(
+            "Merge pull request #1 from org/someuser-patch-3\nFix TokenValidator issue"
+        )
+        assert "someuser" not in kws
+        assert "TokenValidator" in kws
+
 
 class TestIsChangeLocalization:
     def test_task_type_changelocal(self):
