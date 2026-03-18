@@ -448,6 +448,11 @@ def _extract_cl_keywords(task: str) -> list[str]:
         "code", "test", "tests", "type", "types", "value", "values", "data",
         "object", "objects", "item", "items", "list", "dict", "set", "get",
         "put", "call", "calls", "return", "returns", "allow", "allows",
+        # Python language keywords — never useful as symbol focus terms
+        "import", "raise", "yield", "async", "await", "lambda",
+        "assert", "except", "finally", "none", "true", "false",
+        # JS/TS keywords
+        "const", "export", "require", "props", "state",
         "handle", "handles", "check", "checks", "run", "runs", "create",
         "support", "include", "includes", "avoid", "prevent", "ensure",
         "apply", "improve", "move", "moved", "part", "parts", "some",
