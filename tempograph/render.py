@@ -478,6 +478,32 @@ def _extract_cl_keywords(task: str) -> list[str]:
     return priority + general
 
 
+def _is_docs_branch_task(task: str) -> bool:
+    """Return True when the PR branch name is a docs-specific path.
+
+    Docs branches (docs-javascript, docs/#4574, readme-fix, changelog-update) often change
+    both docs AND code, but the overview fallback incorrectly focuses the model on generic
+    structure (conf.py, README) rather than the actual code paths changed.
+    Suppressing overview lets the model use training knowledge → tie instead of regression.
+
+    Evidence: flask "docs-javascript" overview → F1 0.556→0.154 (-0.402 delta, n=71 dataset).
+    """
+    import re
+    m = re.search(r'Merge pull request \S+ from [^/\s]+/(\S+)', task)
+    if not m:
+        return False
+    branch = m.group(1).lower()
+    leaf = branch.split('/')[-1]
+    _DOC_PREFIXES = ("docs-", "doc-", "readme-", "changelog-", "documentation-")
+    _DOC_SUFFIXES = ("-docs", "-doc", "-readme", "-changelog")
+    return (
+        any(leaf.startswith(p) for p in _DOC_PREFIXES)
+        or any(leaf.endswith(s) for s in _DOC_SUFFIXES)
+        or branch.startswith("docs/")
+        or branch.startswith("doc/")
+    )
+
+
 def _is_change_localization(task: str, task_type: str) -> bool:
     """Detect if a task is a change-localization task (PR title, commit message, issue ref).
 
@@ -1503,11 +1529,17 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
             sections.append(kf_section)
             token_count += count_tokens(kf_section)
         elif not keywords:
-            # Truly vague task (no keywords extracted) — overview provides structure.
-            # Evidence: requests base≈0 benefits from overview when keywords=[] (+131%).
-            overview_fallback = render_overview(graph)
-            sections.append(overview_fallback)
-            token_count += count_tokens(overview_fallback)
+            # Truly vague task (no keywords extracted) — overview provides structure, UNLESS the
+            # task is a docs-named branch (docs-javascript, docs/#4574, readme-fix, etc.).
+            # Docs branches often change both docs AND code; overview focuses the model on generic
+            # structure (conf.py, README) instead of the actual code paths changed.
+            # Evidence: flask "docs-javascript" overview → F1 0.556→0.154 (-0.402 delta).
+            # Without overview, model uses training knowledge → ties (~0 delta, not regression).
+            # Low-baseline repos (requests, django) use trunk-branch tasks for overview, not doc branches.
+            if not _is_docs_branch_task(task):
+                overview_fallback = render_overview(graph)
+                sections.append(overview_fallback)
+                token_count += count_tokens(overview_fallback)
         # else: keywords exist but focus found nothing → inject nothing; model uses training knowledge.
         # Evidence: overview hurts high-baseline repos (pydantic -40%, starlette -11%) when
         # focus fails on non-empty keywords.
