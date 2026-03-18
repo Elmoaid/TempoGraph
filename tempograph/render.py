@@ -1494,13 +1494,16 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
         path_fallback_files: list[str] = []  # collected when symbol focus is too broad
         for kw in keywords[:3]:
             focused = render_focused(graph, kw, max_tokens=focus_budget)
-            if not focused or "No symbols matching" in focused or "No exact match" in focused:
-                continue
-            kw_files = _extract_focus_files(focused)
-            if len(kw_files) > 10:
-                # Too broad at symbol level — try path-based fallback.
-                # Handles directory/module keywords (e.g. "demo" → demos/, "fixtures" → test/fixtures/).
+            no_match = not focused or "No symbols matching" in focused or "No exact match" in focused
+            if not no_match:
+                kw_files = _extract_focus_files(focused)
+            too_broad = not no_match and len(kw_files) > 10
+            if no_match or too_broad:
+                # No symbol match OR too broad — try path-based fallback.
+                # Handles: (a) directory/module keywords (e.g. "demo" → demos/),
+                # (b) keyword is a module name but not a symbol (e.g. "config" → sanic/config.py).
                 # Evidence: tornado "demo" → 15 symbol files (skipped) → path match → demos/ (2-4 files).
+                # Evidence: sanic "config" → 0 symbol matches → path → sanic/config.py (correct).
                 if len(kw) >= 4 and not path_fallback_files:
                     kw_lower = kw.lower()
                     path_hits = [
@@ -1510,6 +1513,20 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
                     unique_paths = sorted(set(path_hits))
                     if unique_paths:
                         path_fallback_files = unique_paths[:8]
+                    elif "_" in kw:
+                        # Snake_case keyword: try individual components as path keywords.
+                        # E.g. "config_from_object" → try "config" → sanic/config.py.
+                        # Only use if <= 5 paths (conservative to avoid false positives).
+                        for part in kw.split("_"):
+                            if len(part) >= 4:
+                                part_lower = part.lower()
+                                part_hits = sorted(set(
+                                    sym.file_path for sym in graph.symbols.values()
+                                    if part_lower in sym.file_path.lower()
+                                ))
+                                if part_hits and len(part_hits) <= 5:
+                                    path_fallback_files = part_hits
+                                    break
                 continue
             focus_parts.append(focused)
 

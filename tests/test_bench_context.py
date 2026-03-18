@@ -642,3 +642,47 @@ class TestPrioritizeFiles:
         files = ["src/z.py", "src/a.py", "src/m.py"]
         result = self._pf(files)
         assert result == ["src/a.py", "src/m.py", "src/z.py"]
+
+
+# ---------------------------------------------------------------------------
+# No-match path fallback (new: triggers on 0 symbol matches, not just >10)
+# ---------------------------------------------------------------------------
+
+class TestNoMatchPathFallback:
+    """Path fallback should trigger when focus returns 'No symbols matching', not only >10 files."""
+
+    def _make_mock_context(self, task, path_hits):
+        """Run get_tempograph_context with mocked graph and render_focused returning no-match."""
+        from unittest.mock import MagicMock, patch
+        from bench.changelocal.context import get_tempograph_context
+
+        sym = MagicMock()
+        sym.file_path = path_hits[0] if path_hits else "no_match.py"
+
+        graph = MagicMock()
+        graph.symbols = {f"sym_{i}": MagicMock(file_path=p) for i, p in enumerate(path_hits)}
+
+        with patch("bench.changelocal.context.build_graph", return_value=graph), \
+             patch("bench.changelocal.context.render_focused", return_value="No symbols matching 'config_from_object'"), \
+             patch("bench.changelocal.context.render_overview", return_value=""), \
+             patch("bench.changelocal.context.render_blast_radius", return_value=""):
+            return get_tempograph_context(MagicMock(), task)
+
+    def test_no_match_triggers_path_fallback(self):
+        """When focus returns 'No symbols matching', snake_case split produces KEY FILES output.
+
+        'config_from_object' fails full-string path match, then splits: 'config' matches
+        'sanic/config.py' and 'sanic/config_ext.py' (≤5 paths → used as fallback).
+        """
+        task = "Merge pull request #1436 from jotagesales/config_from_object"
+        result = self._make_mock_context(task, ["sanic/config.py", "sanic/config_ext.py", "sanic/app.py"])
+        assert "KEY FILES (path match):" in result
+        # 'config' part matches sanic/config.py and sanic/config_ext.py (≤5 → valid fallback)
+        assert "sanic/config.py" in result
+
+    def test_no_match_with_no_path_hit_yields_empty(self):
+        """When focus is no-match AND no file has keyword in path, context is empty."""
+        task = "Merge pull request #1612 from c-goosen/bandit_security_static"
+        result = self._make_mock_context(task, ["sanic/app.py", "sanic/server.py"])
+        # 'bandit' and 'security' and 'static' are not in ['sanic/app.py', 'sanic/server.py']
+        assert result == ""
