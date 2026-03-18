@@ -295,7 +295,12 @@ def _extract_focus_files(focus_output: str, task_keywords: list[str] | None = No
     """Extract unique file paths from a render_focused output string.
 
     Returns up to 15 paths sorted by: (1) source vs example/test tier,
-    (2) task keyword match (filename stem contains a keyword), (3) frequency.
+    (2) hub penalty (files dominating >30% of mentions w/o keyword match → demoted),
+    (3) task keyword match (filename stem contains a keyword), (4) frequency.
+
+    Hub detection: files like fastify.js appear in 63% of fastify focus outputs
+    regardless of task, polluting KEY FILES. Evidence: hub removal cut -0.061 F1
+    harm on fastify corpus (n=30). Keyword-matched files are exempt from hub penalty.
     """
     import re
     pattern = r'\b(?:[a-zA-Z0-9_.-]+/)*[a-zA-Z0-9_.-]+\.(?:py|ts|tsx|js|jsx|go|rs|java|cs|rb)\b'
@@ -305,6 +310,13 @@ def _extract_focus_files(focus_output: str, task_keywords: list[str] | None = No
         freq[p] = freq.get(p, 0) + 1
 
     kw_lower = [k.lower() for k in (task_keywords or [])]
+    total_mentions = sum(freq.values())
+
+    def _is_hub(path: str, stem: str) -> bool:
+        if total_mentions <= 6:
+            return False
+        has_kw = any(kw in stem for kw in kw_lower if len(kw) > 3)
+        return not has_kw and (freq[path] / total_mentions) > 0.30
 
     def _sort_key(path: str) -> tuple[int, int, int]:
         lower = path.lower()
@@ -315,8 +327,9 @@ def _extract_focus_files(focus_output: str, task_keywords: list[str] | None = No
         else:
             tier = 0
         stem = lower.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        hub_penalty = 1 if _is_hub(path, stem) else 0
         kw_rank = 0 if kw_lower and any(kw in stem for kw in kw_lower if len(kw) > 3) else 1
-        return (tier, kw_rank, -freq[path])
+        return (tier + hub_penalty, kw_rank, -freq[path])
 
     return sorted(freq.keys(), key=_sort_key)[:15]
 
