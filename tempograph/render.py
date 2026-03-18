@@ -478,9 +478,10 @@ def _extract_cl_keywords(task: str) -> list[str]:
         "assert", "except", "finally", "none", "true", "false",
         # JS/TS keywords
         "const", "export", "require", "props", "state",
-        "handle", "handles", "check", "checks", "run", "runs", "create",
+        "handle", "handles", "handler", "handlers", "check", "checks", "run", "runs", "create",
         "support", "supported", "include", "includes", "avoid", "prevent", "ensure",
         "apply", "improve", "move", "moved", "part", "parts", "some",
+        "name", "named",  # "name" matches ParameterNameConflicts (wrong); compound forms (ParameterName) still work
         "limit", "limits",  # branch component "limit-selects" → "limit" matches LimitOffsetPagination (wrong)
         "error", "errors", "option", "options", "response", "config",
         "enable", "enabled", "disable", "disabled", "default", "global",
