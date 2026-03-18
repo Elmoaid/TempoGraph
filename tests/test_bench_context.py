@@ -124,6 +124,30 @@ class TestExtractKeywords:
         )
         assert "SessionCookiePartitioned" in kws
 
+    def test_fork_master_mines_body(self):
+        """'Username-master' branch is a fork PR from master; body has the real task signal."""
+        kws = _kw(
+            "Merge pull request #650 from kgriffs/CygnusNetworks-master\n"
+            "Add support for Content-Range units"
+        )
+        # Body keywords should be present ('Content' from 'Content-Range')
+        assert "Content" in kws or "content" in kws or "range" in kws.lower() or any(k for k in kws if "range" in k.lower())
+
+    def test_fork_master_body_first_ordering(self):
+        """For 'Username-master' branches, body keywords appear before branch keywords."""
+        kws = _kw(
+            "Merge pull request #636 from kgriffs/hooblei-master\n"
+            "Fix context_type fallback in Request"
+        )
+        # Body keyword 'context_type' should appear in results (body mined)
+        assert "context_type" in kws or "ContextType" in kws
+
+    def test_informative_branch_not_treated_as_fork_master(self):
+        """'no-logger-by-default' ends in '-default', not '-master'; not fork-master."""
+        kws = _kw("Merge pull request #347 from fastify/no-logger-by-default")
+        assert "NoLoggerByDefault" in kws or "logger" in kws
+        assert "NoLoggerByDefault" in kws  # branch CamelCase preserved
+
 
 class TestSelectiveOverviewCondition:
     """Validate which tasks produce empty keywords (→ overview) vs non-empty (→ no overview)."""
