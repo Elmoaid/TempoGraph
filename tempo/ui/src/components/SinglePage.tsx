@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Eye, Crosshair, Bomb, Skull, Flame, GitBranch,
-  Package, Layers, Hash, Map, Brain, Gauge, BookOpen, Coins,
-  Play, Copy, Check, RefreshCw, FolderOpen, Plus, X,
-  Save, FileText, Folder, ChevronRight, PenLine, Shield,
-  Search, BarChart3, Zap,
+  RefreshCw, FolderOpen, Plus, X, GitBranch,
+  FileText, Folder, ChevronRight, PenLine, Shield,
 } from "lucide-react";
 import {
   runTempo, readConfig, writeConfig, listNotes, readFile, readTelemetry,
-  gitInfo, listDir, writeNote, saveOutput,
+  gitInfo, listDir, writeNote,
 } from "./tempo";
 import { ClaudePanel } from "./ClaudePanel";
+import { ModeRunner } from "./ModeRunner";
+import { QualityPanel } from "./QualityPanel";
+import { PluginPanel } from "./PluginPanel";
+import { SettingsPanel } from "./SettingsPanel";
+import { ErrorBoundary } from "./ErrorBoundary";
+import type { PluginInfo } from "./PluginPanel";
 import type { TempoResult } from "../App";
-import type { ComponentType } from "react";
 
 interface Props {
   repoPath: string;
@@ -37,37 +39,6 @@ interface WorkspaceData {
 }
 
 interface DirEntry { name: string; path: string; is_dir: boolean; size: number; modified: string | null; }
-
-interface ModeInfo {
-  mode: string;
-  label: string;
-  icon: ComponentType<{ size?: number }>;
-  tag: string;
-  hint?: string;
-  argPrefix?: string;
-}
-
-const MODES: ModeInfo[] = [
-  { mode: "prepare", label: "Prepare Context", icon: Zap, tag: "mcp", hint: "describe your task", argPrefix: "--query" },
-  { mode: "overview", label: "Overview", icon: Eye, tag: "mcp" },
-  { mode: "focus", label: "Focus", icon: Crosshair, tag: "mcp", hint: "what are you working on?", argPrefix: "--query" },
-  { mode: "lookup", label: "Lookup", icon: Search, tag: "mcp", hint: "where is X? / what calls X?", argPrefix: "--query" },
-  { mode: "blast", label: "Blast Radius", icon: Bomb, tag: "mcp", hint: "symbol or file path", argPrefix: "--query" },
-  { mode: "hotspots", label: "Hotspots", icon: Flame, tag: "mcp" },
-  { mode: "diff", label: "Diff Context", icon: GitBranch, tag: "mcp", hint: "file1.py,file2.py (or leave blank for unstaged)", argPrefix: "--file" },
-  { mode: "dead_code", label: "Dead Code", icon: Skull, tag: "mcp" },
-  { mode: "symbols", label: "Symbols", icon: Hash, tag: "mcp" },
-  { mode: "map", label: "File Map", icon: Map, tag: "mcp" },
-  { mode: "deps", label: "Dependencies", icon: Package, tag: "mcp" },
-  { mode: "arch", label: "Architecture", icon: Layers, tag: "mcp" },
-  { mode: "stats", label: "Stats", icon: BarChart3, tag: "mcp" },
-  { mode: "context", label: "Context Engine", icon: Brain, tag: "ai" },
-  { mode: "quality", label: "Quality Score", icon: Gauge, tag: "ai" },
-  { mode: "learn", label: "Learning", icon: BookOpen, tag: "mcp" },
-  { mode: "token_stats", label: "Token Stats", icon: Coins, tag: "ai" },
-];
-
-interface PluginInfo { name: string; enabled: boolean; description: string; }
 interface NoteEntry { name: string; path: string; size: number; modified: string | null; }
 
 interface FeedbackSummary {
@@ -83,62 +54,31 @@ function parseFeedback(telemetry: string): FeedbackSummary | null {
   const lines = section.split("\n").filter(l => l.trim().startsWith("{"));
   if (lines.length === 0) return null;
   const entries = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const summary: FeedbackSummary = { total: 0, helpful: 0, recentNotes: [], byMode: {} };
-  for (const e of entries) {
-    summary.total++;
-    if (e.helpful) summary.helpful++;
-    const mode = e.mode || "unknown";
-    if (!summary.byMode[mode]) summary.byMode[mode] = { total: 0, helpful: 0 };
-    summary.byMode[mode].total++;
-    if (e.helpful) summary.byMode[mode].helpful++;
-    if (e.note) summary.recentNotes.push({ mode, helpful: e.helpful, note: e.note, ts: e.ts || e.timestamp || "" });
-  }
-  summary.recentNotes = summary.recentNotes.slice(-5).reverse();
-  return summary.total > 0 ? summary : null;
+  const helpful = entries.filter((e: { helpful: boolean }) => e.helpful).length;
+  const byMode: Record<string, { total: number; helpful: number }> = {};
+  entries.forEach((e: { mode: string; helpful: boolean; note?: string; ts?: string }) => {
+    if (!byMode[e.mode]) byMode[e.mode] = { total: 0, helpful: 0 };
+    byMode[e.mode].total++;
+    if (e.helpful) byMode[e.mode].helpful++;
+  });
+  const recentNotes = entries.filter((e: { note?: string }) => e.note).slice(-5).map((e: { mode: string; helpful: boolean; note: string; ts: string }) => ({
+    mode: e.mode, helpful: e.helpful, note: e.note, ts: e.ts,
+  }));
+  return { total: entries.length, helpful, byMode, recentNotes };
 }
 
 function parsePlugins(output: string): PluginInfo[] {
-  return output.split("\n").reduce<PluginInfo[]>((acc, line) => {
+  return output.split("\n").map(line => {
     const m = line.match(/^\s*(?:\[([x ])\]|([●○]))\s+(\w+)\s*[-—]\s*(.+)/);
-    if (m) acc.push({ name: m[3], enabled: m[1] === "x" || m[2] === "●", description: m[4].trim() });
-    return acc;
-  }, []);
-}
-
-function parseQuality(output: string) {
-  const overall = parseInt(output.match(/Quality Score:\s*(\d+)/)?.[1] || "0", 10);
-  const parse = (n: string) => {
-    const m = output.match(new RegExp(`${n}:\\s*(\\d+)/100\\s*\\((.+?)\\)`));
-    return m ? { score: parseInt(m[1], 10), detail: m[2] } : { score: 0, detail: "" };
-  };
-  return { overall, minimality: parse("Minimality"), simplicity: parse("Simplicity"), independence: parse("Independence"), convention: parse("Convention") };
+    if (!m) return null;
+    return { enabled: m[1] === "x" || m[2] === "●", name: m[3], description: m[4].trim() };
+  }).filter(Boolean) as PluginInfo[];
 }
 
 function parseStats(output: string) {
-  return {
-    files: output.match(/(\d+)\s*files/)?.[1] || "-",
-    symbols: output.match(/(\d+)\s*symbols/)?.[1] || "-",
-    lines: output.match(/([\d,]+)\s*lines/)?.[1] || "-",
-  };
+  const m = output.match(/(\d+)\s+files.*?(\d+)\s+symbols.*?([\d,]+)\s+lines/s);
+  return m ? { files: m[1], symbols: m[2], lines: m[3] } : null;
 }
-
-function ScoreBar({ label, score }: { label: string; score: number }) {
-  const color = score >= 75 ? "var(--success)" : score >= 50 ? "var(--warning)" : "var(--error)";
-  return (
-    <div className="score-bar-row">
-      <span className="score-bar-label">{label}</span>
-      <div className="score-bar-track">
-        <div className="score-bar-fill" style={{ width: `${score}%`, background: color }} />
-      </div>
-      <span className="score-bar-num" style={{ color }}>{score}</span>
-    </div>
-  );
-}
-
-const EMPTY_WS: WorkspaceData = {
-  overview: null, quality: null, learning: null, tokens: null,
-  plugins: [], notes: [], telemetry: "", config: {}, git: "", loaded: false,
-};
 
 export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addWorkspace, removeWorkspace }: Props) {
   const [loading, setLoading] = useState(false);
@@ -147,32 +87,23 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
   const [newWsPath, setNewWsPath] = useState("");
   const addInputRef = useRef<HTMLInputElement>(null);
 
-  // Per-workspace cached data
   const cacheRef = useRef<Record<string, WorkspaceData>>({});
 
-  // Mode runner (shared across workspaces)
-  const [activeMode, setActiveMode] = useState("overview");
-  const [modeArgs, setModeArgs] = useState("");
-  const [modeOutput, setModeOutput] = useState("");
-  const [modeRunning, setModeRunning] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [configDirty, setConfigDirty] = useState(false);
 
-  // Notes viewer + editor
   const [noteContent, setNoteContent] = useState<string | null>(null);
   const [noteName, setNoteName] = useState("");
   const [creatingNote, setCreatingNote] = useState(false);
   const [newNoteName, setNewNoteName] = useState("");
   const [newNoteContent, setNewNoteContent] = useState("");
 
-  // File browser
   const [fileBrowserPath, setFileBrowserPath] = useState("");
   const [fileBrowserEntries, setFileBrowserEntries] = useState<DirEntry[]>([]);
   const [fileViewContent, setFileViewContent] = useState<string | null>(null);
   const [fileViewName, setFileViewName] = useState("");
 
   const getWsData = useCallback((path: string): WorkspaceData => {
-    return cacheRef.current[path] || EMPTY_WS;
+    return cacheRef.current[path] || { overview: null, quality: null, learning: null, tokens: null, plugins: [], notes: [], telemetry: "", config: {}, git: "", loaded: false };
   }, []);
 
   const setWsData = useCallback((path: string, data: Partial<WorkspaceData>) => {
@@ -183,7 +114,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
     if (!path) return;
     if (!force && cacheRef.current[path]?.loaded) return;
     setLoading(true);
-    setModeOutput("");
     setNoteContent(null);
 
     const safe = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -191,7 +121,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
     };
     const emptyResult: TempoResult = { success: false, output: "", mode: "" };
 
-    // Read config first to get exclude_dirs for all subsequent calls
     const cfgResult = await safe(() => readConfig(path), { success: false, data: {}, path: "", error: "" });
     const cfgData = (cfgResult as { success: boolean; data: Record<string, unknown> }).success
       ? ((cfgResult as { data: Record<string, unknown> }).data || {}) : {};
@@ -224,7 +153,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
       git: (gi as TempoResult).output || "",
       loaded: true,
     };
-    // Auto-load file browser at repo root
     setFileBrowserPath(path);
     const entries = await listDir(path);
     setFileBrowserEntries(Array.isArray(entries) ? entries as DirEntry[] : []);
@@ -232,49 +160,13 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
     setLoading(false);
   }, []);
 
-  // Load active workspace data on switch
   useEffect(() => {
     if (repoPath) loadAll(repoPath);
   }, [repoPath, loadAll]);
 
-  // Focus add-workspace input
   useEffect(() => {
     if (addingWs) addInputRef.current?.focus();
   }, [addingWs]);
-
-  const activeModeInfo = MODES.find(m => m.mode === activeMode);
-
-  const runMode = async () => {
-    if (!repoPath) return;
-    setModeRunning(true);
-    setModeOutput("");
-    try {
-      const args: string[] = [];
-      // Smart arg construction: if mode has argPrefix and user typed plain text, wrap it
-      const raw = modeArgs.trim();
-      if (raw && activeModeInfo?.argPrefix && !raw.startsWith("--")) {
-        args.push(activeModeInfo.argPrefix, raw);
-      } else if (raw) {
-        args.push(...raw.split(/\s+/));
-      }
-      // Auto-add exclude_dirs from config if not already in args
-      const wsExclude = ws.config.exclude_dirs;
-      if (Array.isArray(wsExclude) && wsExclude.length > 0 && !args.includes("--exclude")) {
-        args.push("--exclude", (wsExclude as string[]).join(","));
-      }
-      const r = await runTempo(repoPath, activeMode, args);
-      setModeOutput(r.output || "No output");
-    } catch {
-      setModeOutput("Failed to run mode. Check that tempo is installed.");
-    }
-    setModeRunning(false);
-  };
-
-  const copyOutput = () => {
-    navigator.clipboard.writeText(modeOutput);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
 
   const ws = getWsData(repoPath);
 
@@ -315,17 +207,8 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
     setCreatingNote(false);
     setNewNoteName("");
     setNewNoteContent("");
-    // Refresh notes
     const nt = await listNotes(repoPath);
     setWsData(repoPath, { notes: (nt || []) as NoteEntry[] });
-  };
-
-  const handleSaveOutput = async () => {
-    if (!modeOutput || !repoPath) return;
-    const outPath = `${repoPath}/.tempo/output-${activeMode}-${Date.now()}.txt`;
-    await saveOutput(outPath, modeOutput);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
   };
 
   const browseTo = async (dirPath: string) => {
@@ -350,12 +233,8 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
   };
 
   const folderName = (p: string) => p.split("/").filter(Boolean).pop() || p;
-
   const stats = ws.overview ? parseStats(ws.overview.output) : null;
-  const q = ws.quality ? parseQuality(ws.quality.output) : null;
-  const scoreColor = (n: number) => n >= 75 ? "c-good" : n >= 50 ? "c-warn" : "c-bad";
 
-  // Empty state — no workspaces at all
   if (workspaces.length === 0 && !loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16 }}>
@@ -371,7 +250,7 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Top bar with brand + stats */}
+      {/* Top bar */}
       <div className="topbar">
         <span className="topbar-brand">Tempo</span>
         {stats && (
@@ -379,7 +258,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             <span><strong style={{ color: "var(--text-primary)" }}>{stats.files}</strong> files</span>
             <span><strong style={{ color: "var(--text-primary)" }}>{stats.symbols}</strong> symbols</span>
             <span><strong style={{ color: "var(--text-primary)" }}>{stats.lines}</strong> lines</span>
-            {q && <span>quality: <strong className={scoreColor(q.overall)}>{q.overall}/100</strong></span>}
           </div>
         )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -403,16 +281,13 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
           <button
             key={w}
             className={`ws-tab ${i === activeIdx ? "active" : ""}`}
-            onClick={() => { setActiveIdx(i); setModeOutput(""); setNoteContent(null); }}
+            onClick={() => { setActiveIdx(i); setNoteContent(null); }}
             title={w}
           >
             <FolderOpen size={12} />
             <span className="ws-tab-name">{folderName(w)}</span>
             {i === activeIdx && loading && <RefreshCw size={10} className="spin" />}
-            <span
-              className="ws-tab-close"
-              onClick={(e) => { e.stopPropagation(); removeWorkspace(i); }}
-            >
+            <span className="ws-tab-close" onClick={(e) => { e.stopPropagation(); removeWorkspace(i); }}>
               <X size={10} />
             </span>
           </button>
@@ -440,131 +315,37 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
         )}
       </div>
 
-      {/* Claude Code panel */}
       {showClaude && <ClaudePanel onClose={() => setShowClaude(false)} workspaces={workspaces} />}
 
       {/* 3-column matrix */}
       <div className="grid-shell" style={{ display: showClaude ? "none" : undefined }}>
-        {/* COLUMN 1: Modes + Run */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="cell" style={{ flex: "0 0 auto", maxHeight: "45%" }}>
-            <div className="cell-head">Modes ({MODES.length})</div>
-            <div className="cell-body">
-              {MODES.map((m) => (
-                <button
-                  key={m.mode}
-                  className={`mode-row ${activeMode === m.mode ? "active" : ""}`}
-                  onClick={() => { setActiveMode(m.mode); setModeOutput(""); setModeArgs(""); }}
-                >
-                  <span className="mode-row-icon"><m.icon size={13} /></span>
-                  <span className="mode-row-name">{m.label}</span>
-                  <span className="mode-row-tag">{m.tag}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* COLUMN 1: Mode runner (self-contained, resets on workspace switch) */}
+        <ErrorBoundary label="Modes">
+          <ModeRunner
+            key={repoPath}
+            repoPath={repoPath}
+            excludeDirs={Array.isArray(ws.config.exclude_dirs) ? ws.config.exclude_dirs as string[] : undefined}
+          />
+        </ErrorBoundary>
 
-          <div className="cell" style={{ flex: 1 }}>
-            <div className="cell-head">
-              Run: {activeMode}
-              <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                {modeOutput && (
-                  <>
-                    <button className="btn btn-ghost" onClick={handleSaveOutput} style={{ padding: "2px 6px", fontSize: 10 }} title="Save to .tempo/">
-                      <Save size={10} />
-                    </button>
-                    <button className="btn btn-ghost" onClick={copyOutput} style={{ padding: "2px 6px", fontSize: 10 }}>
-                      {copied ? <Check size={10} /> : <Copy size={10} />}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="cell-body">
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <input className="input" placeholder={activeModeInfo?.hint || "arguments (optional)"} value={modeArgs} onChange={(e) => setModeArgs(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMode()} style={{ flex: 1 }} />
-                <button className="btn" onClick={runMode} disabled={modeRunning} style={{ padding: "4px 10px" }}>
-                  <Play size={11} /> {modeRunning ? "..." : "Run"}
-                </button>
-              </div>
-              {modeOutput ? (
-                <pre className="output" style={{ maxHeight: "calc(100% - 40px)", overflow: "auto" }}>{modeOutput}</pre>
-              ) : (
-                <div style={{ color: "var(--text-tertiary)", fontSize: 11, padding: 16, textAlign: "center" }}>
-                  Click a mode and Run
-                </div>
-              )}
-            </div>
-          </div>
+        {/* COLUMN 2: Quality + Plugins + Settings */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <ErrorBoundary label="Quality">
+            <QualityPanel qualityOutput={ws.quality?.output || null} />
+          </ErrorBoundary>
+
+          <ErrorBoundary label="Plugins">
+            <PluginPanel plugins={ws.plugins} onToggle={togglePlugin} loading={loading} />
+          </ErrorBoundary>
+
+          <ErrorBoundary label="Settings">
+            <SettingsPanel config={ws.config} isDirty={configDirty} onUpdate={updateConfig} onSave={saveConfig} />
+          </ErrorBoundary>
         </div>
 
-        {/* COLUMN 2: Quality + Plugins + Config */}
+        {/* COLUMN 3: Git + Files + Notes + Feedback + Learning */}
+        <ErrorBoundary label="Info panels">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {q && (
-            <div className="cell" style={{ flex: "0 0 auto" }}>
-              <div className="cell-head">
-                Quality
-                <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700 }} className={scoreColor(q.overall)}>{q.overall}/100</span>
-              </div>
-              <div className="cell-body">
-                <ScoreBar label="Minimality" score={q.minimality.score} />
-                <ScoreBar label="Simplicity" score={q.simplicity.score} />
-                <ScoreBar label="Independence" score={q.independence.score} />
-                <ScoreBar label="Convention" score={q.convention.score} />
-              </div>
-            </div>
-          )}
-
-          <div className="cell" style={{ flex: "0 0 auto" }}>
-            <div className="cell-head">Plugins ({ws.plugins.length})</div>
-            <div className="cell-body">
-              {ws.plugins.map((p) => (
-                <div key={p.name} className="plugin-row">
-                  <div className={`toggle ${p.enabled ? "on" : ""}`} onClick={() => togglePlugin(p.name, p.enabled)} />
-                  <span className="plugin-name">{p.name}</span>
-                  <span className="plugin-desc" title={p.description}>{p.description}</span>
-                </div>
-              ))}
-              {ws.plugins.length === 0 && <div style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{loading ? "Loading..." : "No plugins"}</div>}
-            </div>
-          </div>
-
-          <div className="cell" style={{ flex: 1 }}>
-            <div className="cell-head">
-              Settings
-              {configDirty && (
-                <button className="btn" onClick={saveConfig} style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 10 }}>Save</button>
-              )}
-            </div>
-            <div className="cell-body">
-              <div className="cfg-row">
-                <span className="cfg-label">Max tokens</span>
-                <input className="input" type="number" value={(ws.config.max_tokens as number) || 4000} onChange={(e) => updateConfig("max_tokens", parseInt(e.target.value) || 4000)} style={{ width: 80, textAlign: "right" }} />
-              </div>
-              <div className="cfg-row">
-                <span className="cfg-label">Token budget</span>
-                <select className="input" value={(ws.config.token_budget as string) || "auto"} onChange={(e) => updateConfig("token_budget", e.target.value)} style={{ width: 100 }}>
-                  <option value="auto">Auto</option>
-                  <option value="minimal">Minimal</option>
-                  <option value="standard">Standard</option>
-                  <option value="generous">Generous</option>
-                </select>
-              </div>
-              <div className="cfg-row">
-                <span className="cfg-label">Telemetry</span>
-                <div className={`toggle ${ws.config.telemetry !== false ? "on" : ""}`} onClick={() => updateConfig("telemetry", !(ws.config.telemetry !== false))} />
-              </div>
-              <div className="cfg-row">
-                <span className="cfg-label">Learning</span>
-                <div className={`toggle ${ws.config.learning !== false ? "on" : ""}`} onClick={() => updateConfig("learning", !(ws.config.learning !== false))} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* COLUMN 3: Git + Files + Notes + Learning + Tokens */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Git status */}
           <div className="cell" style={{ flex: "0 0 auto" }}>
             <div className="cell-head"><GitBranch size={11} /> Git</div>
             <div className="cell-body">
@@ -574,7 +355,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             </div>
           </div>
 
-          {/* File browser */}
           <div className="cell" style={{ flex: "0 0 auto" }}>
             <div className="cell-head">
               <Folder size={11} /> Files
@@ -615,7 +395,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             </div>
           </div>
 
-          {/* Notes with create */}
           <div className="cell" style={{ flex: "0 0 auto" }}>
             <div className="cell-head">
               Notes ({ws.notes.filter(n => n.name.endsWith(".md")).length})
@@ -652,7 +431,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             </div>
           </div>
 
-          {/* Agent Feedback */}
           {(() => {
             const fb = parseFeedback(ws.telemetry);
             if (!fb) return null;
@@ -665,9 +443,7 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
                     <span style={{ color: rate >= 70 ? "var(--success)" : rate >= 40 ? "var(--warning)" : "var(--error)" }}>
                       {rate}% helpful
                     </span>
-                    <span style={{ color: "var(--text-tertiary)" }}>
-                      {fb.helpful}/{fb.total} reports
-                    </span>
+                    <span style={{ color: "var(--text-tertiary)" }}>{fb.helpful}/{fb.total} reports</span>
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
                     {Object.entries(fb.byMode).sort((a, b) => b[1].total - a[1].total).slice(0, 6).map(([mode, data]) => (
@@ -684,9 +460,7 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
                     <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
                       {fb.recentNotes.map((n, i) => (
                         <div key={i} style={{ marginBottom: 3, display: "flex", gap: 4 }}>
-                          <span style={{ color: n.helpful ? "var(--success)" : "var(--error)", flexShrink: 0 }}>
-                            {n.helpful ? "+" : "−"}
-                          </span>
+                          <span style={{ color: n.helpful ? "var(--success)" : "var(--error)", flexShrink: 0 }}>{n.helpful ? "+" : "−"}</span>
                           <span style={{ color: "var(--text-tertiary)", flexShrink: 0 }}>[{n.mode}]</span>
                           <span>{n.note}</span>
                         </div>
@@ -698,7 +472,6 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             );
           })()}
 
-          {/* Learning + Tokens combined */}
           <div className="cell" style={{ flex: 1 }}>
             <div className="cell-head">Learning &amp; Tokens</div>
             <div className="cell-body">
@@ -712,6 +485,7 @@ export function SinglePage({ repoPath, workspaces, activeIdx, setActiveIdx, addW
             </div>
           </div>
         </div>
+        </ErrorBoundary>
       </div>
     </div>
   );
