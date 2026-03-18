@@ -497,6 +497,20 @@ class TestPrepareContext:
         assert "Focus:" not in r["data"]
         assert "entry points:" not in r["data"]
 
+    def test_github_patch_branch_strips_username(self):
+        # GitHub auto-generated "username-patch-N" branches should not yield
+        # the username as a priority CamelCase keyword.
+        # Evidence: "Freezerburn-patch-1-reb" → "Freezerburn" → false path match.
+        from tempograph.render import _extract_cl_keywords
+        task = "Merge pull request #999 from Freezerburn/Freezerburn-patch-1-reb\n" \
+               "Add streaming support for response body"
+        kw = _extract_cl_keywords(task)
+        # "Freezerburn" should NOT appear in keywords
+        assert "Freezerburn" not in kw, f"Username leaked into keywords: {kw}"
+        # Body keywords should be present (streaming is a real code concept)
+        kw_lower = [k.lower() for k in kw]
+        assert any("stream" in k for k in kw_lower), f"Expected 'stream' in keywords: {kw}"
+
     def test_camelcase_path_part_skips_generic_words(self):
         # CamelCase keyword parts that are generic programming words (import, test, type...)
         # should NOT be used for path matching — they cause false positive path hits.
