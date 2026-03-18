@@ -1070,3 +1070,74 @@ class TestPathCamelSkipParity:
         for word in ("host", "method", "getter", "setter"):
             assert word in render_skip, f"'{word}' missing from render.py PATH_CAMEL_SKIP"
             assert word in context_skip, f"'{word}' missing from context.py PATH_CAMEL_SKIP"
+
+
+class TestShouldInject:
+    """Tests for should_inject() baseline-conditional gating function."""
+
+    def _make_mock_graph(self, symbol_name: str, score: float):
+        """Mock graph where search_symbols_scored returns one hit with given score."""
+        from unittest.mock import MagicMock
+        sym = MagicMock()
+        sym.name = symbol_name
+        graph = MagicMock()
+        graph.search_symbols_scored.return_value = [(score, sym)]
+        return graph
+
+    def test_baseline_uncertain_always_injects(self):
+        """pred=0 → inject regardless of keyword score."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("logger", 20.0)
+        assert should_inject(["logger"], graph, baseline_predicted_count=0) is True
+
+    def test_baseline_uncertain_pred1_always_injects(self):
+        """pred=1 → inject regardless of keyword score."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("logger", 20.0)
+        assert should_inject(["logger"], graph, baseline_predicted_count=1) is True
+
+    def test_baseline_confident_pred3_skips(self):
+        """pred>=3 → skip (v1 gate), regardless of keyword score."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("anything", 0.0)
+        graph.search_symbols_scored.return_value = []
+        assert should_inject(["anything"], graph, baseline_predicted_count=3) is False
+
+    def test_pred2_high_score_skips(self):
+        """pred=2, exact keyword match (score=20) → skip injection."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("logger", 20.0)
+        # "logger" is 6 chars, exact match: 10 * min(6/3, 2.0) = 20.0 > threshold 15.0
+        assert should_inject(["logger"], graph, baseline_predicted_count=2) is False
+
+    def test_pred2_low_score_injects(self):
+        """pred=2, weak keyword match (score=8) → still inject."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("hook", 8.0)
+        # Score 8.0 < threshold 15.0 → inject
+        assert should_inject(["hook"], graph, baseline_predicted_count=2) is True
+
+    def test_pred2_empty_keywords_injects(self):
+        """pred=2, no effective keywords (all < 4 chars) → inject."""
+        from bench.changelocal.context import should_inject
+        from unittest.mock import MagicMock
+        graph = MagicMock()
+        graph.search_symbols_scored.return_value = []
+        # All keywords shorter than 4 chars are filtered by the function
+        assert should_inject(["fix", "add"], graph, baseline_predicted_count=2) is True
+
+    def test_custom_score_threshold(self):
+        """Custom threshold=10.0: pred=2, score=12 → skip (> custom threshold)."""
+        from bench.changelocal.context import should_inject
+        graph = self._make_mock_graph("hook", 12.0)
+        assert should_inject(["hook"], graph, baseline_predicted_count=2, score_threshold=10.0) is False
+
+    def test_keywords_short_filtered(self):
+        """Keywords shorter than 4 chars are filtered; no search done → inject."""
+        from bench.changelocal.context import should_inject
+        from unittest.mock import MagicMock
+        graph = MagicMock()
+        graph.search_symbols_scored.return_value = [(20.0, MagicMock())]
+        # "req" and "api" are 3 chars — filtered before score check
+        assert should_inject(["req", "api"], graph, baseline_predicted_count=2) is True
+        graph.search_symbols_scored.assert_not_called()
