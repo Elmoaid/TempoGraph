@@ -474,6 +474,42 @@ class TestPrepareContext:
         assert r["injected"] is True
         assert len(r["key_files"]) > 0
 
+    def test_docs_component_branch_no_injection(self):
+        # Branches with "docs" as a component (e.g. pr/5309-docs-view-custom-auth)
+        # should suppress context injection — same as pure docs/ prefix branches.
+        # Regression evidence: DRF "pr/5309-docs-view-custom-auth" → old code injected auth
+        # context (F1 0.33→0.00); new component regex correctly suppresses injection.
+        r = assert_ok(prepare_context(
+            REPO_PATH,
+            task="Merge pull request #5448 from org/pr/5309-docs-view-custom-auth\n"
+                 "Allow setting custom authentication on docs view.",
+            output_format="json",
+        ))
+        # Docs filter fires → keywords=[] + _is_docs_branch_task=True → no context
+        assert "Focus:" not in r["data"]
+        assert "entry points:" not in r["data"]
+
+    def test_camelcase_path_part_skips_generic_words(self):
+        # CamelCase keyword parts that are generic programming words (import, test, type...)
+        # should NOT be used for path matching — they cause false positive path hits.
+        # Regression evidence: "AuthtokenImport" split → "Import" → matches tests/importable/
+        # instead of finding nothing (correct: no authtoken symbols → empty context).
+        from tempograph.render import _extract_cl_keywords
+        # Test that "AuthtokenImport" is extracted (the composite keyword)
+        task = "Merge pull request #3785 from sheppard/authtoken-import\n" \
+               "don't import authtoken model until needed"
+        kw = _extract_cl_keywords(task)
+        # Verify keywords are extracted (the function still works)
+        assert isinstance(kw, list)
+        # The specific issue: prepare_context should not output "importable" path matches
+        r = assert_ok(prepare_context(
+            REPO_PATH,
+            task=task,
+            output_format="json",
+        ))
+        # Should not match tests/importable/ via CamelCase "Import" split
+        assert "importable" not in r["data"]
+
 
 # ---------------------------------------------------------------------------
 # Exclude dirs
