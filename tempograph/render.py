@@ -1290,18 +1290,26 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
         )
         token_count += 25
 
-    sections.append(focus_output)
-    token_count += count_tokens(focus_output)
-
-    # KEY FILES: compact file list extracted from focus output — helps agents navigate
-    # without parsing the full graph structure. Only added when focus produced real output.
     _no_match = not focus_output or "No symbols matching" in focus_output or "No exact match" in focus_output
-    if not _no_match:
-        key_files = _extract_focus_files(focus_output)
-        if key_files:
-            kf_section = "KEY FILES REFERENCED ABOVE:\n" + "\n".join(f"  {f}" for f in key_files)
-            sections.append(kf_section)
-            token_count += count_tokens(kf_section)
+    if _no_match and not _is_large_scope:
+        # Focus found nothing — fall back to repo overview so the agent isn't left with
+        # empty structural context. Mirrors bench strategy: overview when focus fails on
+        # vague tasks (evidence: requests +131% with overview on keyword=[] tasks).
+        overview_fallback = render_overview(graph)
+        sections.append(overview_fallback)
+        token_count += count_tokens(overview_fallback)
+    else:
+        sections.append(focus_output)
+        token_count += count_tokens(focus_output)
+
+        # KEY FILES: compact file list extracted from focus output — helps agents navigate
+        # without parsing the full graph structure. Only added when focus produced real output.
+        if not _no_match:
+            key_files = _extract_focus_files(focus_output)
+            if key_files:
+                kf_section = "KEY FILES REFERENCED ABOVE:\n" + "\n".join(f"  {f}" for f in key_files)
+                sections.append(kf_section)
+                token_count += count_tokens(kf_section)
 
     hotspot_budget = int(max_tokens * 0.15)
     if token_count < max_tokens - 100:
