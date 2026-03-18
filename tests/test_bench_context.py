@@ -980,3 +980,58 @@ class TestDefinitionFirstFallback:
             )
         # Only test file → filtered out → 0 def_hits → no injection
         assert "tests/test_redirect.py" not in result
+
+
+# ---------------------------------------------------------------------------
+# Parity: context.py _PATH_CAMEL_SKIP == render.py _PATH_CAMEL_SKIP
+# These sets MUST stay in sync — context.py is the bench harness implementation
+# and render.py is the production implementation. Divergence means bench results
+# no longer reflect production code quality.
+# ---------------------------------------------------------------------------
+
+class TestPathCamelSkipParity:
+    """Verify context.py and render.py _PATH_CAMEL_SKIP sets are identical."""
+
+    def _extract_camel_skip(self, filepath: str) -> set:
+        import re
+        with open(filepath) as f:
+            content = f.read()
+        idx = content.find("_PATH_CAMEL_SKIP = frozenset({")
+        assert idx != -1, f"_PATH_CAMEL_SKIP not found in {filepath}"
+        block = content[idx:]
+        end = block.find("})")
+        block = block[:end + 2]
+        lines = [line.split("#")[0].strip() for line in block.split("\n")]
+        cleaned = " ".join(lines)
+        vals = re.findall(r'["\']([a-z_]+)["\']\s*[,}]', cleaned)
+        return set(vals)
+
+    def test_path_camel_skip_identical(self):
+        render_skip = self._extract_camel_skip("tempograph/render.py")
+        context_skip = self._extract_camel_skip("bench/changelocal/context.py")
+        in_render_not_ctx = render_skip - context_skip
+        in_ctx_not_render = context_skip - render_skip
+        assert not in_render_not_ctx, (
+            f"render.py has entries missing from context.py: {sorted(in_render_not_ctx)}. "
+            "Bench harness won't match production behavior for path fallback."
+        )
+        assert not in_ctx_not_render, (
+            f"context.py has entries missing from render.py: {sorted(in_ctx_not_render)}. "
+            "Keep both sets in sync."
+        )
+
+    def test_json_xml_in_skip(self):
+        """json/xml must be skipped — 'ExposeDefaultJsonSerializer' → skip 'Json'."""
+        render_skip = self._extract_camel_skip("tempograph/render.py")
+        context_skip = self._extract_camel_skip("bench/changelocal/context.py")
+        for word in ("json", "xml"):
+            assert word in render_skip, f"'{word}' missing from render.py PATH_CAMEL_SKIP"
+            assert word in context_skip, f"'{word}' missing from context.py PATH_CAMEL_SKIP"
+
+    def test_http_terms_in_skip(self):
+        """host/method/getter/setter must be skipped — 'HostSetter' → skip 'Host'."""
+        render_skip = self._extract_camel_skip("tempograph/render.py")
+        context_skip = self._extract_camel_skip("bench/changelocal/context.py")
+        for word in ("host", "method", "getter", "setter"):
+            assert word in render_skip, f"'{word}' missing from render.py PATH_CAMEL_SKIP"
+            assert word in context_skip, f"'{word}' missing from context.py PATH_CAMEL_SKIP"
