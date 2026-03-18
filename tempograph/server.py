@@ -682,9 +682,9 @@ def prepare_context(repo_path: str, task: str, task_type: str = "",
       Bench (canonical): python3 -m bench.changelocal.analyze --canonical --conditions baseline,tempograph_adaptive
       Canonical result (n=159 Python+JS): +6.9% F1 (p=0.035*). Cost: 2× inference for ~37% of tasks.
     precision_filter: if True, skip context when >4 key files are found (topic too broad).
-      Bench: python3 -m bench.changelocal.analyze --conditions baseline,tempograph_precision | grep TOTAL
-      Result (n=182 Python+JS, 2026-03-18): +13.8% F1 (p=0.014*, p<0.05). Zero overhead.
-      Default True (best confirmed condition).
+      Canonical bench: python3 -m bench.changelocal.analyze --canonical --conditions baseline,tempograph_precision
+      Canonical result (n=159 Python+JS): +3.7% F1 (p=0.21, ns). Zero overhead. Default True.
+      Helps on high-baseline repos (converts flask −42% to positive); neutral or slightly harmful elsewhere.
     output_format: "text" (default) or "json" for structured response
 
     Returns: overview summary + focused context + KEY FILES + hotspot warnings,
