@@ -1470,7 +1470,7 @@ def _extract_name_from_question(question: str) -> str:
 
 def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: str = "",
                    baseline_predicted_files: list[str] | None = None,
-                   precision_filter: bool = True) -> str:
+                   precision_filter: bool = False) -> str:
     """Batch context preparation: overview + focus + hotspots + diff in one token-budgeted output.
 
     If L2 learned insights exist for task_type, includes extra modes (dead code, quality)
@@ -1539,6 +1539,29 @@ def render_prepare(graph: Tempo, task: str, max_tokens: int = 6000, task_type: s
                         # E.g. "config_from_object" → try "config" → sanic/config.py.
                         # Only use if <= 5 paths (conservative to avoid false positives).
                         for part in kw.split("_"):
+                            if len(part) >= 4:
+                                part_lower = part.lower()
+                                part_hits = sorted(set(
+                                    sym.file_path for sym in graph.symbols.values()
+                                    if part_lower in sym.file_path.lower()
+                                ))
+                                if part_hits and len(part_hits) <= 5:
+                                    path_fallback_files = part_hits
+                                    break
+                    else:
+                        # CamelCase keyword: split on uppercase boundaries and try each part.
+                        # E.g. "RequestStreamingSupport" → try "streaming" → request/streaming.py.
+                        _parts: list[str] = []
+                        _cur: list[str] = []
+                        for _c in kw:
+                            if _c.isupper() and _cur:
+                                _parts.append("".join(_cur))
+                                _cur = [_c]
+                            else:
+                                _cur.append(_c)
+                        if _cur:
+                            _parts.append("".join(_cur))
+                        for part in _parts:
                             if len(part) >= 4:
                                 part_lower = part.lower()
                                 part_hits = sorted(set(
