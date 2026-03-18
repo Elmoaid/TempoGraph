@@ -498,6 +498,17 @@ def _extract_cl_keywords(task: str) -> list[str]:
         "contribution", "contribute", "thanks", "introduces", "introduce",
         "follow", "follows", "following", "address", "addresses", "addressing",
         "resolves", "resolve", "closes", "close", "based", "instead", "rather",
+        # Narrative/descriptive body prose — verbs/adverbs that consume keyword slots,
+        # displacing domain words (e.g. "accidentally broke cookie" → skip 'accidentally'
+        # and 'broke' so 'cookie' advances into the effective_keywords[:3] cap).
+        # Evidence: falcon 3431ac32 — 'accidentally','broke' in slots 2-3 blocked 'cookie'.
+        "accidentally", "broke", "broken", "wrongly", "correctly", "incorrectly",
+        "properly", "caused", "noticed", "realized", "discovered", "detected",
+        "missing", "extra", "leading", "trailing",
+        # Auxiliary/linking verbs — never symbol names
+        "being", "were", "been", "have", "having", "does", "doing", "done",
+        "getting", "giving", "going", "making", "taking", "using", "using",
+        "seem", "seems", "seemed", "become", "becomes", "became",
         # Conventional commit type tokens (belt-and-suspenders for any that slip through)
         "feat", "chore", "refactor", "revert", "perf", "style",
     }
