@@ -3,8 +3,9 @@ import {
   Eye, Crosshair, Bomb, Skull, Flame, GitBranch,
   Package, Layers, Hash, Map as MapIcon, Brain, Gauge, BookOpen, Coins,
   Play, Copy, Check, Save, Search, BarChart3, Zap,
+  ThumbsUp, ThumbsDown,
 } from "lucide-react";
-import { runTempo, saveOutput } from "./tempo";
+import { runTempo, saveOutput, reportFeedback } from "./tempo";
 import { CommandPalette } from "./CommandPalette";
 import type { ComponentType } from "react";
 
@@ -62,6 +63,9 @@ export function ModeRunner({ repoPath, excludeDirs }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  // Per-mode feedback tracking (null=not yet, true=helpful, false=unhelpful)
+  const feedbackGiven = useRef<Map<string, boolean>>(new Map<string, boolean>());
+  const [feedbackMode, setFeedbackMode] = useState<string | null>(null);
   const argsInputRef = useRef<HTMLInputElement>(null);
   // Per-mode result cache: avoids re-running when switching back to a mode
   const outputCache = useRef<Map<string, string>>(new Map());
@@ -142,6 +146,13 @@ export function ModeRunner({ repoPath, excludeDirs }: Props) {
     await saveOutput(outPath, modeOutput);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const submitFeedback = async (helpful: boolean) => {
+    if (feedbackGiven.current.has(activeMode)) return;
+    feedbackGiven.current.set(activeMode, helpful);
+    setFeedbackMode(activeMode); // trigger re-render to show "thanks"
+    await reportFeedback(repoPath, activeMode, helpful);
   };
 
   return (
@@ -253,7 +264,24 @@ export function ModeRunner({ repoPath, excludeDirs }: Props) {
                   {copied ? <><Check size={11} /> Copied!</> : <><Copy size={11} /> Copy for Claude</>}
                 </button>
               )}
-              <pre className="output" style={{ maxHeight: activeMode === "prepare" ? "calc(100% - 72px)" : "calc(100% - 40px)", overflow: "auto" }}>{modeOutput}</pre>
+              <pre className="output" style={{ maxHeight: activeMode === "prepare" ? "calc(100% - 96px)" : "calc(100% - 64px)", overflow: "auto" }}>{modeOutput}</pre>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                <span style={{ fontSize: 9, color: "var(--text-tertiary)", marginRight: 2 }}>Helpful?</span>
+                {feedbackGiven.current.has(activeMode) ? (
+                  <span style={{ fontSize: 9, color: "var(--text-tertiary)" }}>
+                    {feedbackGiven.current.get(activeMode) ? "✓ marked helpful" : "✓ marked unhelpful"}
+                  </span>
+                ) : (
+                  <>
+                    <button className="btn btn-ghost" onClick={() => submitFeedback(true)} style={{ padding: "1px 6px", fontSize: 9 }} title="Helpful">
+                      <ThumbsUp size={9} />
+                    </button>
+                    <button className="btn btn-ghost" onClick={() => submitFeedback(false)} style={{ padding: "1px 6px", fontSize: 9 }} title="Not helpful">
+                      <ThumbsDown size={9} />
+                    </button>
+                  </>
+                )}
+              </div>
             </>
           ) : (
             <div style={{ color: "var(--text-tertiary)", fontSize: 11, padding: 16, textAlign: "center" }}>
