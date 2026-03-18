@@ -1,0 +1,219 @@
+import { useState, useEffect, useRef } from "react";
+import {
+  Eye, Crosshair, Bomb, Skull, Flame, GitBranch,
+  Package, Layers, Hash, Map as MapIcon, Brain, Gauge, BookOpen, Coins,
+  Play, Copy, Check, Save, Search, BarChart3, Zap,
+} from "lucide-react";
+import { runTempo, saveOutput } from "./tempo";
+import { CommandPalette } from "./CommandPalette";
+import type { ComponentType } from "react";
+
+interface ModeInfo {
+  mode: string;
+  label: string;
+  icon: ComponentType<{ size?: number }>;
+  tag: string;
+  hint?: string;
+  argPrefix?: string;
+  desc?: string;
+}
+
+const MODES: ModeInfo[] = [
+  { mode: "prepare", label: "Prepare Context", icon: Zap, tag: "mcp", hint: "describe your task", argPrefix: "--query", desc: "Optimized context snapshot for your task — paste directly into Claude." },
+  { mode: "overview", label: "Overview", icon: Eye, tag: "mcp", desc: "High-level summary: languages, top files, key symbols, recent activity." },
+  { mode: "focus", label: "Focus", icon: Crosshair, tag: "mcp", hint: "what are you working on?", argPrefix: "--query", desc: "Deep-dive into a symbol or task area — BFS from entry point, depth 3." },
+  { mode: "lookup", label: "Lookup", icon: Search, tag: "mcp", hint: "where is X? / what calls X?", argPrefix: "--query", desc: "Find where a symbol is defined and what calls it across the codebase." },
+  { mode: "blast", label: "Blast Radius", icon: Bomb, tag: "mcp", hint: "symbol or file path", argPrefix: "--query", desc: "Show all files/symbols that would be affected if this symbol changes." },
+  { mode: "hotspots", label: "Hotspots", icon: Flame, tag: "mcp", desc: "Files with the most cross-module dependencies — highest refactor risk." },
+  { mode: "diff", label: "Diff Context", icon: GitBranch, tag: "mcp", hint: "file1.py,file2.py (blank = unstaged)", argPrefix: "--file", desc: "Context around changed files — what else could break from this diff." },
+  { mode: "dead_code", label: "Dead Code", icon: Skull, tag: "mcp", desc: "Symbols with no callers — ranked by confidence. Review before deleting." },
+  { mode: "symbols", label: "Symbols", icon: Hash, tag: "mcp", desc: "All exported symbols in the repo with types, locations, and caller counts." },
+  { mode: "map", label: "File Map", icon: MapIcon, tag: "mcp", desc: "Directory tree with file sizes and symbol counts — codebase topology." },
+  { mode: "deps", label: "Dependencies", icon: Package, tag: "mcp", desc: "Import graph: which modules depend on which, and circular dependency detection." },
+  { mode: "arch", label: "Architecture", icon: Layers, tag: "mcp", desc: "Layer diagram inferred from import patterns — entry points to leaf modules." },
+  { mode: "stats", label: "Stats", icon: BarChart3, tag: "mcp", desc: "Token counts, file sizes, language breakdown — input budget awareness." },
+  { mode: "context", label: "Context Engine", icon: Brain, tag: "ai", desc: "AI-ranked context: most relevant files for the current task." },
+  { mode: "quality", label: "Quality Score", icon: Gauge, tag: "ai", desc: "Code health metrics: complexity, coupling, test coverage signals." },
+  { mode: "learn", label: "Learning", icon: BookOpen, tag: "mcp", desc: "Patterns learned from past feedback — what worked, what to avoid." },
+  { mode: "token_stats", label: "Token Stats", icon: Coins, tag: "ai", desc: "Per-mode token usage history — optimize your context budget." },
+];
+
+interface Props {
+  repoPath: string;
+  excludeDirs?: string[];
+}
+
+export function ModeRunner({ repoPath, excludeDirs }: Props) {
+  const [activeMode, setActiveMode] = useState("overview");
+  const [modeArgs, setModeArgs] = useState("");
+  const [modeOutput, setModeOutput] = useState("");
+  const [modeRunning, setModeRunning] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const argsInputRef = useRef<HTMLInputElement>(null);
+  // Per-mode result cache: avoids re-running when switching back to a mode
+  const outputCache = useRef<Map<string, string>>(new Map());
+
+  const activeModeInfo = MODES.find(m => m.mode === activeMode);
+
+  const switchMode = (mode: string) => {
+    setActiveMode(mode);
+    setModeArgs("");
+    const cached = outputCache.current.get(mode);
+    setModeOutput(cached ?? "");
+    // Auto-run arg-free modes if no cached result
+    if (!cached && !MODES.find(m => m.mode === mode)?.argPrefix) {
+      setTimeout(() => runModeRef.current?.(), 0);
+    }
+  };
+
+  // Keyboard shortcuts: Cmd+K = palette, Cmd+R = run, Cmd+1-9 = switch mode
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.key === "k") { e.preventDefault(); setPaletteOpen(true); }
+      if (e.key === "r" && !modeRunning) { e.preventDefault(); runModeRef.current?.(); }
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9 && n <= MODES.length) { e.preventDefault(); switchMode(MODES[n - 1].mode); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [modeRunning]);
+
+  // Stable ref so the keydown closure always calls the latest runMode
+  const runModeRef = useRef<(() => void) | null>(null);
+
+  // Auto-run overview when workspace mounts (component is keyed by repoPath so remounts on switch)
+  useEffect(() => { runModeRef.current?.(); }, []);
+
+  const runMode = async () => {
+    if (!repoPath || modeRunning) return;
+    setModeRunning(true);
+    setModeOutput("");
+    try {
+      const args: string[] = [];
+      const raw = modeArgs.trim();
+      if (raw && activeModeInfo?.argPrefix && !raw.startsWith("--")) {
+        args.push(activeModeInfo.argPrefix, raw);
+      } else if (raw) {
+        args.push(...raw.split(/\s+/));
+      }
+      if (excludeDirs && excludeDirs.length > 0 && !args.includes("--exclude")) {
+        args.push("--exclude", excludeDirs.join(","));
+      }
+      const r = await runTempo(repoPath, activeMode, args);
+      const out = r.output || "No output";
+      outputCache.current.set(activeMode, out);
+      setModeOutput(out);
+    } catch {
+      setModeOutput("Failed to run mode. Check that tempo is installed.");
+    }
+    setModeRunning(false);
+  };
+  runModeRef.current = runMode;
+
+  const copyOutput = () => {
+    navigator.clipboard.writeText(modeOutput);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleSaveOutput = async () => {
+    if (!modeOutput || !repoPath) return;
+    const outPath = `${repoPath}/.tempo/output-${activeMode}-${Date.now()}.txt`;
+    await saveOutput(outPath, modeOutput);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <>
+    {paletteOpen && (
+      <CommandPalette
+        modes={MODES}
+        onSelect={(mode) => { switchMode(mode); setTimeout(() => argsInputRef.current?.focus(), 50); }}
+        onClose={() => setPaletteOpen(false)}
+      />
+    )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="cell" style={{ flex: "0 0 auto", maxHeight: "45%" }}>
+        <div className="cell-head">
+          Modes ({MODES.length})
+          <span style={{ marginLeft: "auto", fontSize: 9, color: "var(--text-tertiary)", fontWeight: 400 }}>⌘K</span>
+        </div>
+        <div className="cell-body">
+          {MODES.map((m) => (
+            <button
+              key={m.mode}
+              className={`mode-row ${activeMode === m.mode ? "active" : ""}`}
+              onClick={() => switchMode(m.mode)}
+            >
+              <span className="mode-row-icon"><m.icon size={13} /></span>
+              <span className="mode-row-name">{m.label}</span>
+              <span className="mode-row-tag">{m.tag}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="cell" style={{ flex: 1 }}>
+        <div className="cell-head">
+          {activeModeInfo?.label ?? activeMode}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+            {modeOutput && (
+              <>
+                <button className="btn btn-ghost" onClick={handleSaveOutput} style={{ padding: "2px 6px", fontSize: 10 }} title="Save to .tempo/">
+                  <Save size={10} />
+                </button>
+                <button className="btn btn-ghost" onClick={copyOutput} style={{ padding: "2px 6px", fontSize: 10 }}>
+                  {copied ? <Check size={10} /> : <Copy size={10} />}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="cell-body">
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              ref={argsInputRef}
+              className="input"
+              placeholder={activeModeInfo?.hint || "arguments (optional)"}
+              value={modeArgs}
+              onChange={(e) => setModeArgs(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runMode()}
+              style={{ flex: 1 }}
+            />
+            <button className="btn" onClick={runMode} disabled={modeRunning} style={{ padding: "4px 10px" }} title="Run (⌘R)">
+              <Play size={11} /> {modeRunning ? "..." : "Run"}
+            </button>
+          </div>
+          {modeRunning ? (
+            <div style={{ color: "var(--text-tertiary)", fontSize: 11, padding: 16, textAlign: "center" }}>
+              <span style={{ animation: "pulse 1.2s ease-in-out infinite", display: "inline-block" }}>
+                Running {activeMode}…
+              </span>
+            </div>
+          ) : modeOutput ? (
+            <>
+              {activeMode === "prepare" && (
+                <button
+                  className="btn"
+                  onClick={copyOutput}
+                  style={{ width: "100%", marginBottom: 6, fontSize: 11, padding: "5px 0", justifyContent: "center" }}
+                >
+                  {copied ? <><Check size={11} /> Copied!</> : <><Copy size={11} /> Copy for Claude</>}
+                </button>
+              )}
+              <pre className="output" style={{ maxHeight: activeMode === "prepare" ? "calc(100% - 72px)" : "calc(100% - 40px)", overflow: "auto" }}>{modeOutput}</pre>
+            </>
+          ) : (
+            <div style={{ color: "var(--text-tertiary)", fontSize: 11, padding: 16, textAlign: "center" }}>
+              Click a mode and Run <span style={{ opacity: 0.5 }}>(⌘R)</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+    </>
+  );
+}
