@@ -518,6 +518,50 @@ class TestHubPenalty:
 
 
 # ---------------------------------------------------------------------------
+# _is_docs_task unit tests
+# ---------------------------------------------------------------------------
+
+class TestIsDocsTask:
+    """Tests for _is_docs_task() — overview suppression for docs branches."""
+
+    def _docs(self, task):
+        from bench.changelocal.context import _is_docs_task
+        return _is_docs_task(task)
+
+    def test_docs_prefix_branch(self):
+        """'docs-javascript' branch triggers docs detection."""
+        assert self._docs("Merge pull request #4636 from pallets/docs-javascript") is True
+
+    def test_docs_subdir_branch(self):
+        """'docs/#...' path branch triggers docs detection."""
+        assert self._docs("Merge pull request #4579 from lecovi/docs/#4574-test-typing") is True
+
+    def test_readme_prefix(self):
+        assert self._docs("Merge pull request #1 from org/readme-fix") is True
+
+    def test_changelog_prefix(self):
+        assert self._docs("Merge pull request #1 from org/changelog-update") is True
+
+    def test_doc_suffix(self):
+        assert self._docs("Merge pull request #1 from org/api-docs") is True
+
+    def test_non_docs_branch(self):
+        """Regular code branches are NOT docs tasks."""
+        assert self._docs("Merge pull request #4337 from pallets/remove-deprecated-code") is False
+        assert self._docs("Merge pull request #588 from nwoltman/reply-not-found") is False
+
+    def test_trunk_branch_not_docs(self):
+        """Trunk branch merges are not docs tasks (handled separately)."""
+        assert self._docs("Merge branch 'master'") is False
+        assert self._docs("Merge branch 'stable'") is False
+
+    def test_non_merge_pr_not_docs(self):
+        """Direct commit messages are not docs tasks."""
+        assert self._docs("fix: prevent null pointer in handler") is False
+        assert self._docs("add SESSION_COOKIE_PARTITIONED config (#5499)") is False
+
+
+# ---------------------------------------------------------------------------
 # _prioritize_files unit tests
 # ---------------------------------------------------------------------------
 
