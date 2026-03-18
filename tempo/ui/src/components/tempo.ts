@@ -180,3 +180,17 @@ export async function writeFile(
     return { success: false, output: String(e), mode: "write" };
   }
 }
+
+export async function reportFeedback(
+  repoPath: string,
+  mode: string,
+  helpful: boolean,
+  note: string = ""
+): Promise<TempoResult> {
+  const fn = await getInvoke();
+  try {
+    return await fn("report_feedback", { repoPath, mode, helpful, note });
+  } catch (e) {
+    return { success: false, output: String(e), mode: "feedback" };
+  }
+}
