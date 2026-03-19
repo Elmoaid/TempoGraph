@@ -389,25 +389,19 @@ class TestPrepareContext:
         # Either as KEY FILES from focus (≤10 files) or KEY FILES (path match)
         assert r["status"] == "ok"  # At minimum, no crash on broad keyword
 
-    def test_adaptive_gating_high_overlap_skips_injection(self):
-        # When baseline_predicted_files covers all KEY FILES (100% overlap), injection is skipped.
-        # Bench evidence (Phase 5.27, n=83): overlap>=0.5 → 0 F1 delta (model already knows).
-        import re
+    def test_adaptive_gating_v5_pred_ge_2_skips_injection(self):
+        # v5 gate: when baseline has 2+ predicted files, injection is skipped.
+        # Bench evidence (Phase 5.30, n=114): v5 +7.6% F1, p=0.013, zero harm.
         task = "Merge pull request #1 from org/fix-render-focused"
-        # First: baseline call to confirm KEY FILES are produced for this task
         base_r = assert_ok(prepare_context(REPO_PATH, task=task, output_format="json"))
         if "KEY FILES" not in base_r["data"]:
             pytest.skip("Task produces no KEY FILES — gating path can't trigger")
-        # Extract the file paths listed in KEY FILES section
-        key_file_paths = re.findall(r'  (\S+\.(?:py|js|ts))', base_r["data"])
-        assert key_file_paths, "KEY FILES present but no paths parsed"
-        # Second call with those exact files as baseline → 100% overlap → skip injection
+        # 2+ files as baseline → pred>=2 → v5 skips injection
         gated_r = assert_ok(prepare_context(
             REPO_PATH, task=task,
-            baseline_predicted_files=key_file_paths,
+            baseline_predicted_files=["file1.py", "file2.py"],
             output_format="json",
         ))
-        # Gating triggered: returns "" (model already correct — 0 F1 loss, saves tokens)
         assert gated_r["data"].strip() == ""
 
     def test_adaptive_gating_v5_pred_lt_2_injects(self):
