@@ -507,7 +507,7 @@ def _cochange_orbit(
 def _find_orbit_seeds(
     graph: "Tempo",
     query_tokens: list[str],
-    orbit_pairs: list[tuple[str, float]],
+    orbit_pairs: list[tuple[str, float, int]],
 ) -> list[tuple["Symbol", float]]:
     """Find the best-matching symbol in each orbit file by query token overlap.
 
@@ -518,7 +518,7 @@ def _find_orbit_seeds(
         return []
 
     results: list[tuple["Symbol", float]] = []
-    for fp, freq in orbit_pairs:
+    for fp, freq, _days in orbit_pairs:
         syms = graph.symbols_in_file(fp)
         best_sym: "Symbol | None" = None
         best_score = 0
