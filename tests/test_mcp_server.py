@@ -1692,7 +1692,7 @@ class TestOrbitBFSSeeding:
         )
         g = build_graph(tmp_path, use_cache=False)
 
-        orbit_pairs = [("utils.py", 0.9)]
+        orbit_pairs = [("utils.py", 0.9, 10)]
         results = _find_orbit_seeds(g, ["process"], orbit_pairs)
         assert len(results) == 1, "Must find one matching symbol"
         sym, freq = results[0]
@@ -1708,7 +1708,7 @@ class TestOrbitBFSSeeding:
         (tmp_path / "docs.py").write_text("def intro(): pass\ndef outro(): pass\n")
         g = build_graph(tmp_path, use_cache=False)
 
-        orbit_pairs = [("docs.py", 0.7)]
+        orbit_pairs = [("docs.py", 0.7, 30)]
         results = _find_orbit_seeds(g, ["render", "focused"], orbit_pairs)
         assert results == [], "No symbols matching 'render' or 'focused' in docs.py — must return []"
 
@@ -1728,9 +1728,9 @@ class TestOrbitBFSSeeding:
         (tmp_path / "monitoring.py").write_text("def monitor_transform_output(): pass\n")
         g = build_graph(tmp_path, use_cache=False)
 
-        # monitoring.py co-changes with core.py at 80%
-        mock_matrix = {"core.py": [("monitoring.py", 0.8)]}
-        with patch("tempograph.git.cochange_matrix", return_value=mock_matrix), \
+        # monitoring.py co-changes with core.py at 80%, 10 days ago
+        mock_matrix = {"core.py": [("monitoring.py", 0.8, 10)]}
+        with patch("tempograph.git.cochange_matrix_recency", return_value=mock_matrix), \
              patch("tempograph.git.is_git_repo", return_value=True):
             out = render_focused(g, "core_transform", max_tokens=4000)
 
