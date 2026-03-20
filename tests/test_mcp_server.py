@@ -228,11 +228,15 @@ class TestParameters:
         assert "server.py" in r["data"]
 
     def test_blast_radius_unindexed_existing_file(self, tmp_path):
-        """File exists on disk but isn't in the graph → actionable message."""
+        """File exists on disk but isn't in the graph → exclusion hint with directory name."""
         unindexed = tmp_path / "orphan.py"
         unindexed.write_text("def foo(): pass\n")
         raw = blast_radius(REPO_PATH, file_path=str(unindexed))
-        assert "not indexed" in raw
+        assert "not in the graph" in raw
+        assert "--exclude" in raw
+        assert "overview" in raw
+        # Should name the parent directory in the hint
+        assert tmp_path.name in raw
 
     def test_diff_context_explicit_files_no_git(self):
         """Passing changed_files explicitly should not require git."""
@@ -2651,6 +2655,172 @@ mod tests {
         assert test_sym.kind.value == "test"
 
 
+class TestSwiftParser:
+    def test_free_function(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+func compute(a: Int, b: Int) -> Int {
+    return a + b
+}
+"""
+        p = FileParser("math.swift", Language.SWIFT, code)
+        syms, _, _ = p.parse()
+        assert any(s.name == "compute" for s in syms)
+        fn_sym = next(s for s in syms if s.name == "compute")
+        assert fn_sym.kind.value == "function"
+
+    def test_class_with_method(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+class Foo {
+    func bar() -> Int { return 1 }
+}
+"""
+        p = FileParser("foo.swift", Language.SWIFT, code)
+        syms, edges, _ = p.parse()
+        names = {s.name for s in syms}
+        assert "Foo" in names
+        assert "bar" in names
+        foo_sym = next(s for s in syms if s.name == "Foo")
+        assert foo_sym.kind.value == "class"
+        bar_sym = next(s for s in syms if s.name == "bar")
+        assert bar_sym.kind.value == "method"
+        contains = [e for e in edges if e.kind.value == "contains"]
+        assert any(e.source_id == foo_sym.id and e.target_id == bar_sym.id for e in contains)
+
+    def test_struct(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+struct Point {
+    var x: Double
+    var y: Double
+}
+"""
+        p = FileParser("geo.swift", Language.SWIFT, code)
+        syms, _, _ = p.parse()
+        assert any(s.name == "Point" for s in syms)
+        pt = next(s for s in syms if s.name == "Point")
+        assert pt.kind.value == "struct"
+
+    def test_enum(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+enum Direction {
+    case north
+    case south
+    case east
+    case west
+}
+"""
+        p = FileParser("dir.swift", Language.SWIFT, code)
+        syms, _, _ = p.parse()
+        assert any(s.name == "Direction" for s in syms)
+        d = next(s for s in syms if s.name == "Direction")
+        assert d.kind.value == "enum"
+
+    def test_protocol(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+protocol Drawable {
+    func draw()
+    func bounds() -> (Double, Double)
+}
+"""
+        p = FileParser("proto.swift", Language.SWIFT, code)
+        syms, edges, _ = p.parse()
+        names = {s.name for s in syms}
+        assert "Drawable" in names
+        d = next(s for s in syms if s.name == "Drawable")
+        assert d.kind.value == "interface"
+        assert "draw" in names
+        assert "bounds" in names
+        contains = [e for e in edges if e.kind.value == "contains"]
+        draw_sym = next(s for s in syms if s.name == "draw")
+        assert any(e.source_id == d.id and e.target_id == draw_sym.id for e in contains)
+
+    def test_extension(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+class Foo {
+    func base() {}
+}
+
+extension Foo {
+    func baz() {}
+}
+"""
+        p = FileParser("ext.swift", Language.SWIFT, code)
+        syms, edges, _ = p.parse()
+        names = {s.name for s in syms}
+        assert "Foo" in names
+        assert "baz" in names
+        foo_sym = next(s for s in syms if s.name == "Foo")
+        baz_sym = next(s for s in syms if s.name == "baz")
+        assert baz_sym.kind.value == "method"
+        contains = [e for e in edges if e.kind.value == "contains"]
+        assert any(e.source_id == foo_sym.id and e.target_id == baz_sym.id for e in contains)
+
+    def test_init_declaration(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+class Widget {
+    var value: Int
+    init(value: Int) {
+        self.value = value
+    }
+}
+"""
+        p = FileParser("widget.swift", Language.SWIFT, code)
+        syms, edges, _ = p.parse()
+        widget = next(s for s in syms if s.name == "Widget")
+        init_sym = next((s for s in syms if s.name == "init"), None)
+        assert init_sym is not None
+        assert init_sym.kind.value == "method"
+        contains = [e for e in edges if e.kind.value == "contains"]
+        assert any(e.source_id == widget.id and e.target_id == init_sym.id for e in contains)
+
+    def test_pub_visibility_exported(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+public func exported() {}
+internal func notExported() {}
+private func alsoPrivate() {}
+func defaultInternal() {}
+"""
+        p = FileParser("vis.swift", Language.SWIFT, code)
+        syms, _, _ = p.parse()
+        exp = next(s for s in syms if s.name == "exported")
+        assert exp.exported is True
+        # internal/private/default are not marked as exported by the handler
+        not_exp = next(s for s in syms if s.name == "notExported")
+        assert not_exp.exported is False
+        also_priv = next(s for s in syms if s.name == "alsoPrivate")
+        assert also_priv.exported is False
+
+    def test_calls_edge(self):
+        from tempograph.parser import FileParser
+        from tempograph.types import Language
+        code = b"""
+func doWork() {
+    helper()
+}
+
+func helper() {}
+"""
+        p = FileParser("work.swift", Language.SWIFT, code)
+        syms, edges, _ = p.parse()
+        calls = [e for e in edges if e.kind.value == "calls"]
+        assert any("helper" in e.target_id for e in calls)
+
+
 class TestBlastRiskBadge:
     """Tests for the blast risk badge in render_focused.
 
@@ -2705,3 +2875,125 @@ class TestBlastRiskBadge:
         count = int(m.group(1))
         # 8 unique external files calling shared_util
         assert count == 8, f"expected count=8, got {count}"
+
+
+class TestChangeVelocityRanking:
+    """Tests for change velocity ranking in render_hotspots.
+
+    Symbols in files with high recent git churn get a score multiplier so
+    they rank higher — actively changing files carry coordination hazard.
+    """
+
+    def _make_hotspot_repo(self, tmp_path) -> object:
+        """Build a minimal repo with two hotspot candidates."""
+        from tempograph.builder import build_graph
+
+        # hub.py: many callers (static coupling)
+        (tmp_path / "hub.py").write_text(
+            "def central_func():\n    pass\n"
+        )
+        # callers: 6 files import hub.central_func
+        for i in range(6):
+            (tmp_path / f"user_{i}.py").write_text(
+                f"from hub import central_func\n\ndef task_{i}():\n    central_func()\n"
+            )
+        # quiet.py: few callers but exists
+        (tmp_path / "quiet.py").write_text(
+            "def stable_func():\n    pass\n"
+        )
+        (tmp_path / "user_quiet.py").write_text(
+            "from quiet import stable_func\n\ndef run():\n    stable_func()\n"
+        )
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_velocity_annotation_fires_for_hot_file(self, tmp_path, monkeypatch):
+        """render_hotspots annotates active-churn files with commits/week."""
+        from tempograph.render import render_hotspots
+        import tempograph.render as render_mod
+
+        g = self._make_hotspot_repo(tmp_path)
+        # Simulate hub.py with 20 commits/week
+        monkeypatch.setattr(
+            render_mod,
+            "render_hotspots",
+            render_hotspots,
+        )
+        # Patch file_change_velocity at the import site in render.py
+        import tempograph.git as git_mod
+        monkeypatch.setattr(
+            git_mod,
+            "file_change_velocity",
+            lambda repo, recent_days=7: {"hub.py": 20.0, "quiet.py": 0.0},
+        )
+
+        out = render_hotspots(g, top_n=10)
+        assert "active churn" in out, f"must annotate hub.py as active churn; got:\n{out}"
+        assert "commits/week" in out, "must include commits/week"
+        assert "re-read before editing" in out
+
+    def test_velocity_annotation_silent_below_threshold(self, tmp_path, monkeypatch):
+        """render_hotspots does NOT annotate files below 5 commits/week."""
+        from tempograph.render import render_hotspots
+        import tempograph.git as git_mod
+
+        g = self._make_hotspot_repo(tmp_path)
+        monkeypatch.setattr(
+            git_mod,
+            "file_change_velocity",
+            lambda repo, recent_days=7: {"hub.py": 2.0},
+        )
+
+        out = render_hotspots(g, top_n=10)
+        assert "active churn" not in out, f"should NOT fire at 2 commits/week; got:\n{out}"
+
+    def test_velocity_boosts_score(self, tmp_path, monkeypatch):
+        """A symbol in a churning file should rank above one with equivalent static score."""
+        from tempograph.render import render_hotspots
+        import tempograph.git as git_mod
+
+        # Two files with equivalent static coupling: 3 callers each
+        (tmp_path / "hot_file.py").write_text("def hot_func():\n    pass\n")
+        (tmp_path / "cold_file.py").write_text("def cold_func():\n    pass\n")
+        for i in range(3):
+            (tmp_path / f"hot_caller_{i}.py").write_text(
+                f"from hot_file import hot_func\n\ndef t{i}():\n    hot_func()\n"
+            )
+            (tmp_path / f"cold_caller_{i}.py").write_text(
+                f"from cold_file import cold_func\n\ndef t{i}():\n    cold_func()\n"
+            )
+        from tempograph.builder import build_graph
+        g = build_graph(str(tmp_path), use_cache=False)
+
+        # hot_file.py has 30 commits/week, cold_file.py has 0
+        monkeypatch.setattr(
+            git_mod,
+            "file_change_velocity",
+            lambda repo, recent_days=7: {"hot_file.py": 30.0, "cold_file.py": 0.0},
+        )
+
+        out = render_hotspots(g, top_n=10)
+        hot_pos = out.find("hot_func")
+        cold_pos = out.find("cold_func")
+        assert hot_pos != -1, "hot_func must appear in hotspots"
+        assert cold_pos != -1, "cold_func must appear in hotspots"
+        assert hot_pos < cold_pos, (
+            f"hot_func (churning file) must rank above cold_func (stable); "
+            f"got hot_pos={hot_pos} cold_pos={cold_pos}"
+        )
+
+    def test_velocity_absent_no_error(self, tmp_path, monkeypatch):
+        """render_hotspots works normally when git velocity unavailable."""
+        from tempograph.render import render_hotspots
+        import tempograph.git as git_mod
+
+        g = self._make_hotspot_repo(tmp_path)
+        # Simulate git failure returning empty dict
+        monkeypatch.setattr(
+            git_mod,
+            "file_change_velocity",
+            lambda repo, recent_days=7: {},
+        )
+
+        out = render_hotspots(g, top_n=10)
+        assert "hotspot" in out.lower()
+        assert "active churn" not in out
