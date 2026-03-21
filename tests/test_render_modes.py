@@ -13,6 +13,7 @@ from tempograph.render import (
     render_skills,
     render_lookup,
     _extract_name_from_question,
+    _is_test_file,
 )
 from tempograph.git import is_git_repo
 
@@ -428,3 +429,31 @@ class TestRenderLookup:
         })
         out = render_lookup(g, "what imports utils.py")
         assert isinstance(out, str)
+
+
+# ── _is_test_file ─────────────────────────────────────────────────────────────
+
+class TestIsTestFile:
+    def test_pytest_test_file(self):
+        assert _is_test_file("tests/test_parser.py") is True
+
+    def test_underscore_test_suffix(self):
+        assert _is_test_file("parser_test.py") is True
+
+    def test_jest_test_file(self):
+        assert _is_test_file("Button.test.tsx") is True
+
+    def test_jest_spec_file(self):
+        assert _is_test_file("utils.spec.ts") is True
+
+    def test_source_file_not_test(self):
+        assert _is_test_file("tempograph/parser.py") is False
+
+    def test_file_with_test_in_middle_not_test(self):
+        assert _is_test_file("test_helpers_module.py") is True  # starts with test_
+
+    def test_non_test_ts_file(self):
+        assert _is_test_file("components/Button.tsx") is False
+
+    def test_empty_string_not_test(self):
+        assert _is_test_file("") is False
