@@ -2479,6 +2479,31 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
             lines.append("")
             lines.append(f"Untested hotspots: {', '.join(_uh_parts)}")
 
+    # Churn risk: symbols that are BOTH complex (cx≥15) AND actively churning (≥3/wk).
+    # These are the highest-priority refactor targets — changing frequently AND hard to reason about.
+    # Separate from hotspot rank (which weights coupling) — a standalone complex churner still matters.
+    if velocity and scores:
+        _churn_risk: list[tuple[float, Symbol, float]] = []
+        for _, _sym in scores:
+            if _is_test_file(_sym.file_path):
+                continue
+            _cx = _sym.complexity
+            if _cx < 15:
+                continue
+            _cpw = velocity.get(_sym.file_path, 0.0)
+            if _cpw < 3.0:
+                continue
+            _danger = _cx * (_cpw ** 0.5)
+            _churn_risk.append((_danger, _sym, _cpw))
+        if len(_churn_risk) >= 1:
+            _churn_risk.sort(key=lambda x: -x[0])
+            _cr_parts = [
+                f"{sym.qualified_name} (cx={sym.complexity}, {cpw:.0f}/wk)"
+                for _, sym, cpw in _churn_risk[:3]
+            ]
+            lines.append("")
+            lines.append(f"Churn risk: {', '.join(_cr_parts)}")
+
     # File concentration: which files dominate the hotspot list.
     # If one file has 5+ hotspots, agents should read it first — it's the bottleneck.
     if len(scores) >= 5:
