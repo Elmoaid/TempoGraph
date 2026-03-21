@@ -10572,3 +10572,109 @@ class TestOverviewOrphanModules:
         assert "orphan modules" not in out, (
             f"'orphan modules' must not appear when all modules are connected; got:\n{out}"
         )
+
+
+class TestOverviewMostCalledExport:
+    """S130: Overview — 'most-called export: <name> (N caller files in file.py)'."""
+
+    def test_most_called_export_shown(self, tmp_path):
+        """Exported fn called by 5+ source files → 'most-called export:' appears."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # lib.py has 6 exported fns; core_fn is called from 5 separate source files
+        lib_code = "\n".join(
+            [f"def exported_{i}():\n    pass" for i in range(5)]
+            + ["def core_fn(x):\n    return x * 2"]
+        )
+        (tmp_path / "lib.py").write_text(lib_code + "\n")
+        for i in range(5):
+            (tmp_path / f"svc{i}.py").write_text(
+                f"from lib import core_fn\ndef run_{i}():\n    return core_fn({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "most-called export" in out, (
+            f"Expected 'most-called export' when one fn has 5+ caller files; got:\n{out}"
+        )
+
+    def test_most_called_export_absent_below_threshold(self, tmp_path):
+        """Exported fn called by < 5 source files → 'most-called export:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        (tmp_path / "lib.py").write_text(
+            "def fn_a():\n    pass\n"
+            "def fn_b():\n    pass\n"
+            "def fn_c():\n    pass\n"
+            "def fn_d():\n    pass\n"
+            "def fn_e():\n    pass\n"
+            "def fn_f():\n    pass\n"
+        )
+        # Only 3 callers — below the 5-caller threshold
+        for i in range(3):
+            (tmp_path / f"user{i}.py").write_text(
+                f"from lib import fn_a\ndef go_{i}():\n    fn_a()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "most-called export" not in out, (
+            f"'most-called export' must not appear when max callers < 5; got:\n{out}"
+        )
+
+
+class TestHotspotsHotAndComplex:
+    """S131: Hotspots — 'hot+complex: file.py (avg cx=N.N) — active and hard to change'."""
+
+    def test_hot_and_complex_shown(self, tmp_path):
+        """Files with many callers and high avg complexity → 'hot+complex:' appears."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        # Two complex source files, each called by multiple files
+        _cx_body = (
+            "def complex_fn(x, y, z):\n"
+            "    if x > 0:\n"
+            "        if y > 0:\n"
+            "            if z > 0:\n"
+            "                for i in range(x):\n"
+            "                    if i % 2 == 0:\n"
+            "                        while y > 0:\n"
+            "                            y -= 1\n"
+            "    return x\n"
+        )
+        (tmp_path / "hot_a.py").write_text(_cx_body)
+        (tmp_path / "hot_b.py").write_text(_cx_body.replace("complex_fn", "other_fn"))
+        for i in range(4):
+            (tmp_path / f"caller_a{i}.py").write_text(
+                f"from hot_a import complex_fn\ndef run_{i}(): return complex_fn({i}, {i}, {i})\n"
+            )
+            (tmp_path / f"caller_b{i}.py").write_text(
+                f"from hot_b import other_fn\ndef run_{i}(): return other_fn({i}, {i}, {i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "hot+complex" in out, (
+            f"Expected 'hot+complex' for files with many callers and high cx; got:\n{out}"
+        )
+
+    def test_hot_and_complex_absent_for_simple_files(self, tmp_path):
+        """Files in hotspot zone but with simple functions → 'hot+complex:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        # Simple functions (cx=1) with callers — hot but NOT complex
+        (tmp_path / "simple_a.py").write_text("def fn_a(x):\n    return x\n")
+        (tmp_path / "simple_b.py").write_text("def fn_b(x):\n    return x\n")
+        for i in range(4):
+            (tmp_path / f"c_a{i}.py").write_text(
+                f"from simple_a import fn_a\ndef go(): fn_a({i})\n"
+            )
+            (tmp_path / f"c_b{i}.py").write_text(
+                f"from simple_b import fn_b\ndef go(): fn_b({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "hot+complex" not in out, (
+            f"'hot+complex' must not appear for simple (cx=1) hotspot files; got:\n{out}"
+        )

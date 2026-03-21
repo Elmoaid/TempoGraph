@@ -529,6 +529,28 @@ def render_overview(graph: Tempo) -> str:
             _ap_line += f", {len(_unused_exp)} unused ({_unused_pct}%)"
         lines.append(_ap_line)
 
+    # S130: Most-called export — the single exported symbol with the most cross-file source callers.
+    # The "heart" of the codebase: changes here have maximum blast radius.
+    # Only shown when there are 5+ exported non-test symbols and max callers >= 5.
+    if len(_exported_src) >= 5:
+        _mc_exp_sym: "Symbol | None" = None
+        _mc_exp_count = 0
+        for _mce in _exported_src:
+            if _mce.kind.value not in ("function", "method"):
+                continue
+            _mce_cfs = len({
+                c.file_path for c in graph.callers_of(_mce.id)
+                if c.file_path != _mce.file_path and not _is_test_file(c.file_path)
+            })
+            if _mce_cfs > _mc_exp_count:
+                _mc_exp_count = _mce_cfs
+                _mc_exp_sym = _mce
+        if _mc_exp_sym and _mc_exp_count >= 5:
+            lines.append(
+                f"most-called export: {_mc_exp_sym.name}"
+                f" ({_mc_exp_count} caller files in {_mc_exp_sym.file_path.rsplit('/', 1)[-1]})"
+            )
+
     # S84: Test debt — exported functions/methods with real callers but zero test coverage.
     # Different from "API surface unused": these ARE actively called but not tested.
     # The highest-risk category: production code exercised by users but not by tests.

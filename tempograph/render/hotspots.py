@@ -400,6 +400,41 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
             lines.append("")
             lines.append(f"Danger zone: {', '.join(_dz_parts)} — high churn + complexity")
 
+    # S131: Hot-and-complex files — source files that are BOTH in the hotspot top half
+    # AND have high average cyclomatic complexity. These are the most dangerous: actively
+    # changing, and the changes are in hard-to-understand code.
+    # Only shown when 2+ such files exist (avoid showing for well-maintained codebases).
+    if scores:
+        _hs_seen_fps_131: set[str] = set()
+        _hs_file_scores_131: dict[str, float] = {}
+        for _sc131, _sym131 in scores[:top_n]:
+            if _sym131.file_path not in _hs_seen_fps_131 and not _is_test_file(_sym131.file_path):
+                _hs_seen_fps_131.add(_sym131.file_path)
+                _hs_file_scores_131[_sym131.file_path] = _sc131
+        _hot_complex_files: list[tuple[float, int, str]] = []
+        for _fp131, _s131 in _hs_file_scores_131.items():
+            _fi131 = graph.files.get(_fp131)
+            if not _fi131:
+                continue
+            _cx_vals131 = [
+                graph.symbols[sid].complexity
+                for sid in _fi131.symbols
+                if sid in graph.symbols and graph.symbols[sid].complexity >= 1
+                and graph.symbols[sid].kind.value in ("function", "method")
+            ]
+            if _cx_vals131:
+                _avg_cx131 = sum(_cx_vals131) / len(_cx_vals131)
+                if _avg_cx131 >= 5.0:
+                    _hot_complex_files.append((_avg_cx131, int(_s131), _fp131))
+        if len(_hot_complex_files) >= 2:
+            _hot_complex_files.sort(key=lambda x: -x[0])
+            _hc_parts = [
+                f"{fp.rsplit('/', 1)[-1]} (avg cx={cx:.1f})"
+                for cx, _, fp in _hot_complex_files[:3]
+            ]
+            lines.append("")
+            lines.append(f"hot+complex: {', '.join(_hc_parts)} — active and hard to change")
+
     # S112: Churn spike — files whose last-7d velocity is 2× their 14-day average.
     # Sudden acceleration = something changed: new feature push, bug-fixing crunch, or refactor.
     # Agents need to know about these to prioritize review and watch for regressions.
