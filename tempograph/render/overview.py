@@ -3507,6 +3507,23 @@ def _signals_async_oop(
             f" — no regression safety net; all changes carry high risk regardless of apparent scope"
         )
 
+    # S973: Lone class — exactly one class exists alongside many functions.
+    # A single class in an otherwise function-oriented codebase often acts as a namespace;
+    # this may indicate an incomplete OOP migration or a namespace anti-pattern.
+    _src_classes973 = [
+        s for s in graph.symbols.values()
+        if s.kind.value == "class" and s.parent_id is None and not _is_test_file(s.file_path)
+    ]
+    _src_fns973 = [
+        s for s in graph.symbols.values()
+        if s.kind.value == "function" and s.parent_id is None and not _is_test_file(s.file_path)
+    ]
+    if len(_src_classes973) == 1 and len(_src_fns973) >= 10:
+        lines.append(
+            f"lone class: only 1 class ({_src_classes973[0].name}) among {len(_src_fns973)} functions"
+            f" — may be a namespace class; verify it adds value over module-level functions"
+        )
+
     return lines
 
 

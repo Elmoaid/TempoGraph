@@ -3358,6 +3358,26 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — removed conversion steps may leave callers passing unformatted data silently"
         )
 
+    # S977: Dead SQL functions — unused sql_/query_/select_/fetch_/insert_/delete_ prefixed functions.
+    # Dead database query functions indicate removed data access paths; if application
+    # logic still attempts to call them, the result is a silent data gap or runtime error.
+    _sql_prefixes977 = ("sql_", "query_", "select_", "fetch_", "insert_", "delete_", "update_", "upsert_")
+    _dead_sql977 = [
+        s for s in dead
+        if s.kind.value in ("function", "method")
+        and s.parent_id is None
+        and not _is_test_file(s.file_path)
+        and any(s.name.lower().startswith(p) for p in _sql_prefixes977)
+    ]
+    if _dead_sql977:
+        _sql_names977 = ", ".join(s.name for s in _dead_sql977[:3])
+        if len(_dead_sql977) > 3:
+            _sql_names977 += f" +{len(_dead_sql977) - 3} more"
+        lines.append(
+            f"dead sql: {len(_dead_sql977)} unused database query function(s) ({_sql_names977})"
+            f" — removed data access paths; callers expecting query results may silently get None or raise"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

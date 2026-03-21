@@ -4210,6 +4210,20 @@ def _signals_focused_fn_advanced(
                     f" — shared method name across classes; changes may need mirroring for consistent behavior"
                 )
 
+    # S972: Orphan symbol — focused symbol has no callers and no callees.
+    # A completely isolated symbol has no connections to the rest of the codebase;
+    # it may be dead code, an unregistered plugin hook, or a symbol never wired up.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim972 = _seed_syms[0]
+        if not _is_test_file(_prim972.file_path) and _prim972.kind.value in ("function", "method"):
+            _callers972 = graph.callers_of(_prim972.id)
+            _callees972 = graph.callees_of(_prim972.id)
+            if not _callers972 and not _callees972:
+                lines.append(
+                    f"\norphan symbol: {_prim972.name} has no callers and no callees"
+                    f" — completely isolated; may be dead code or a missing registration/wire-up"
+                )
+
     return lines
 
 
