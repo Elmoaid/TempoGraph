@@ -10010,3 +10010,134 @@ class TestDiffTestRatio:
         assert "test coverage:" not in out or "3/3" not in out, (
             f"'test coverage:' should not show 3/3 (fully covered); got:\n{out}"
         )
+
+
+class TestLookupRenameRisk:
+    """S113: Lookup 'where is X' shows rename risk annotation for widely-used symbols."""
+
+    def test_high_rename_risk_shown_for_many_callers(self, tmp_path):
+        """Symbol called from 4+ files (>= 3 external) → 'rename risk: HIGH'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_lookup
+
+        (tmp_path / "api.py").write_text("def core_fn(): return 42\n")
+        for i in range(4):
+            (tmp_path / f"user_{i}.py").write_text(f"from api import core_fn\ndef go_{i}(): return core_fn()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_lookup(g, "where is core_fn defined")
+        assert "rename risk: HIGH" in out, (
+            f"Expected 'rename risk: HIGH' for symbol called from 4 files; got:\n{out}"
+        )
+
+    def test_medium_rename_risk_shown_for_few_external_callers(self, tmp_path):
+        """Symbol called from 2 external files → 'rename risk: MEDIUM'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_lookup
+
+        (tmp_path / "lib.py").write_text("def helper(): return 1\n")
+        for i in range(2):
+            (tmp_path / f"mod_{i}.py").write_text(f"from lib import helper\ndef run_{i}(): return helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_lookup(g, "where is helper defined")
+        assert "rename risk: MEDIUM" in out, (
+            f"Expected 'rename risk: MEDIUM' for symbol called from 2 external files; got:\n{out}"
+        )
+
+    def test_rename_risk_absent_for_local_only_symbol(self, tmp_path):
+        """Symbol with no external callers → no 'rename risk:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_lookup
+
+        (tmp_path / "util.py").write_text(
+            "def _private_helper(): return 0\ndef main(): return _private_helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_lookup(g, "where is _private_helper defined")
+        assert "rename risk:" not in out, (
+            f"'rename risk:' must not appear for local-only symbol; got:\n{out}"
+        )
+
+
+class TestOverviewLargestTestFile:
+    """S115: Overview 'largest test file: test_foo.py (N tests)'."""
+
+    def test_largest_test_file_shown_with_multiple_test_files(self, tmp_path):
+        """Project with 2+ test files → largest one shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        (tmp_path / "src.py").write_text("def fn(): return 1\n")
+        # test file with 5 tests
+        (tmp_path / "test_main.py").write_text(
+            "from src import fn\n"
+            + "".join(f"def test_case_{i}(): fn()\n" for i in range(5))
+        )
+        # smaller test file
+        (tmp_path / "test_small.py").write_text(
+            "from src import fn\ndef test_basic(): fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "largest test file:" in out, (
+            f"Expected 'largest test file:' for project with 2 test files; got:\n{out}"
+        )
+        assert "test_main.py" in out, f"Expected 'test_main.py' as largest; got:\n{out}"
+
+    def test_largest_test_file_absent_with_single_test_file(self, tmp_path):
+        """Only 1 test file → no 'largest test file:' shown (no comparison needed)."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        (tmp_path / "code.py").write_text("def go(): return 1\n")
+        (tmp_path / "test_code.py").write_text(
+            "from code import go\n" + "".join(f"def test_{i}(): go()\n" for i in range(5))
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "largest test file:" not in out, (
+            f"'largest test file:' must not appear with only 1 test file; got:\n{out}"
+        )
+
+
+class TestFocusUntestedCallers:
+    """S116: Focus 'untested callers: N caller files have no tests'."""
+
+    def test_untested_callers_shown_when_many_uncovered_callers(self, tmp_path):
+        """4 caller files with no test counterpart → 'untested callers:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "core.py").write_text("def process(): return 1\n")
+        # 4 callers in files without tests
+        for i in range(4):
+            (tmp_path / f"service_{i}.py").write_text(
+                f"from core import process\ndef run_{i}(): return process()\n"
+            )
+        # 1 test file (only for core)
+        (tmp_path / "test_core.py").write_text(
+            "from core import process\ndef test_process(): process()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process")
+        assert "untested callers:" in out, (
+            f"Expected 'untested callers:' for 4 callers without test files; got:\n{out}"
+        )
+
+    def test_untested_callers_absent_when_callers_are_covered(self, tmp_path):
+        """All callers have matching test files → no 'untested callers:'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "lib.py").write_text("def helper(): return 1\n")
+        for i in range(2):
+            (tmp_path / f"app_{i}.py").write_text(
+                f"from lib import helper\ndef run_{i}(): return helper()\n"
+            )
+            (tmp_path / f"test_app_{i}.py").write_text(
+                f"from app_{i} import run_{i}\ndef test_run(): run_{i}()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "helper")
+        assert "untested callers:" not in out, (
+            f"'untested callers:' must not appear when callers have tests; got:\n{out}"
+        )
