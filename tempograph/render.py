@@ -295,6 +295,29 @@ def render_overview(graph: Tempo) -> str:
             lines.append("")
             lines.append(f"top imported: {', '.join(_ti_parts)}")
 
+    # Stable core: widely-imported files (>= 5 source importers) that haven't been
+    # modified in 30+ days. These are the infrastructure heart of the codebase —
+    # agents can rely on them being stable and well-tested.
+    if graph.root and _importer_counts:
+        try:
+            from .git import file_last_modified_days as _fld_core  # noqa: PLC0415
+            _stable_core: list[tuple[int, str, int]] = []  # (importers, fp, days)
+            for _fp, _n_imp in _importer_counts.items():
+                if _n_imp < 5:
+                    continue
+                _days_c = _fld_core(graph.root, _fp)
+                if _days_c is not None and _days_c >= 30:
+                    _stable_core.append((_n_imp, _fp, _days_c))
+            if _stable_core:
+                _stable_core.sort(key=lambda x: -x[0])
+                _sc_parts = [
+                    f"{fp.rsplit('/', 1)[-1]} ({n_imp} importers, {d}d)"
+                    for n_imp, fp, d in _stable_core[:3]
+                ]
+                lines.append(f"stable core: {', '.join(_sc_parts)}")
+        except Exception:
+            pass
+
     # High-coupling files: non-test source files that import >= 8 distinct source files.
     # High fan-out = many dependencies = fragile integration points. Hard to change safely.
     _import_fanout: dict[str, int] = {}
@@ -1552,6 +1575,26 @@ def _build_symbol_block_lines(
             _ext_caller_files = {c.file_path for c in graph.callers_of(sym.id) if c.file_path != sym.file_path}
             if len(_ext_caller_files) >= 3:
                 _doc_ann = " [undocumented]"
+        # S71: Parameter count annotation — functions with >= 5 params are hard to call/mock.
+        # Counts top-level commas inside the first (...) of the signature.
+        _param_ann = ""
+        if sym.kind.value in ("function", "method") and sym.signature:
+            _s_open = sym.signature.find("(")
+            _s_close = sym.signature.rfind(")")
+            if _s_open != -1 and _s_close > _s_open:
+                _ps = sym.signature[_s_open + 1:_s_close].strip()
+                if _ps:
+                    _pd, _pc = 0, 0
+                    for _ch in _ps:
+                        if _ch in "([{":
+                            _pd += 1
+                        elif _ch in ")]}":
+                            _pd -= 1
+                        elif _ch == "," and _pd == 0:
+                            _pc += 1
+                    _pcount = _pc + 1
+                    if _pcount >= 5:
+                        _param_ann = f" [params: {_pcount}]"
         # Recursion detection: self-recursion or mutual recursion via direct callees.
         # Recursive functions need care before memoizing, splitting, or inlining.
         if sym.kind.value in ("function", "method"):
@@ -1588,7 +1631,7 @@ def _build_symbol_block_lines(
         }
         if len(_hub_caller_files) >= 15:
             _hub_ann = f" [hub: {len(_hub_caller_files)} files]"
-    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann}{_callee_ann}{_depth_ann}{_doc_ann} — {loc}{orbit_note}"]
+    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann}{_callee_ann}{_depth_ann}{_doc_ann}{_param_ann} — {loc}{orbit_note}"]
     # S61: "also in:" — warn when same symbol name exists in other files.
     # Prevents agents from fixing the wrong copy in multi-file refactors.
     if depth == 0:
