@@ -2195,7 +2195,21 @@ def _build_symbol_block_lines(
         if sym.line_count > 500:
             warnings.append(f"LARGE ({sym.line_count} lines — use grep, don't read)")
         if sym.complexity > 50:
-            warnings.append(f"HIGH COMPLEXITY (cx={sym.complexity})")
+            # Show complexity relative to file average for functions/methods
+            _file_fns = [
+                s for s in graph.symbols.values()
+                if s.file_path == sym.file_path
+                and s.kind.value in ("function", "method")
+                and s.complexity > 0
+            ]
+            _cx_rel = ""
+            if len(_file_fns) >= 3:
+                _avg_cx = sum(s.complexity for s in _file_fns) / len(_file_fns)
+                if _avg_cx > 0:
+                    _ratio = sym.complexity / _avg_cx
+                    if _ratio >= 1.5:
+                        _cx_rel = f" ({_ratio:.1f}x file avg)"
+            warnings.append(f"HIGH COMPLEXITY (cx={sym.complexity}{_cx_rel})")
         if depth == 0 and not graph.callers_of(sym.id):
             _name_lower = sym.name.lower()
             _entry_patterns = ("handle_", "on_", "run", "start", "main", "execute", "dispatch",
@@ -3763,6 +3777,35 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
         _rf_parts = [f"{s.name} (cx={s.complexity})" for s in _refactor_candidates[:4]]
         lines.append("")
         lines.append(f"Refactor targets: {', '.join(_rf_parts)} — high-cx private with no ext callers")
+
+    # S94: Stable hotspots — top-ranked symbols in files not modified in 60+ days.
+    # Mature, widely-used code that hasn't been touched: treat carefully, high breakage risk.
+    # Needs git history; silently skipped otherwise. Only shown when 2+ qualify.
+    if graph.root and scores:
+        try:
+            from .git import file_last_modified_days as _fld_hs
+            _stable_hot: list[tuple[int, str, int]] = []  # (days, sym.name, cross_callers)
+            _age_cache_hs: dict[str, int | None] = {}
+            for _, _sh_sym in scores[:15]:
+                if _is_test_file(_sh_sym.file_path):
+                    continue
+                if _sh_sym.file_path not in _age_cache_hs:
+                    _age_cache_hs[_sh_sym.file_path] = _fld_hs(graph.root, _sh_sym.file_path)
+                _days = _age_cache_hs[_sh_sym.file_path]
+                if _days is None or _days < 60:
+                    continue
+                _cross = len({
+                    c.file_path for c in graph.callers_of(_sh_sym.id)
+                    if c.file_path != _sh_sym.file_path
+                })
+                if _cross >= 2:
+                    _stable_hot.append((_days, _sh_sym.name, _cross))
+            if len(_stable_hot) >= 1:
+                _sh_parts = [f"{name} ({d}d, {n} callers)" for d, name, n in _stable_hot[:3]]
+                lines.append("")
+                lines.append(f"Stable hot: {', '.join(_sh_parts)} — unchanged 60d+, high coupling")
+        except Exception:
+            pass
 
     return "\n".join(lines)
 

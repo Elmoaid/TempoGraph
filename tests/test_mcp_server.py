@@ -9065,3 +9065,124 @@ class TestOverviewComplexityConcentration:
         assert "cx concentration:" not in out, (
             f"'cx concentration:' must not appear when complexity is evenly spread; got:\n{out}"
         )
+
+
+class TestHotspotsStableHot:
+    """S94: Hotspots 'Stable hot:' for top-ranked symbols unchanged for 60+ days."""
+
+    def test_stable_hot_shown_for_old_widely_called_symbols(self, tmp_path):
+        """Top hotspot in file not modified in 60+ days → 'Stable hot:' appears."""
+        from unittest.mock import patch
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        # One file with a widely-called function
+        (tmp_path / "core.py").write_text("def process(x): return x\n")
+        for i in range(4):
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from core import process\ndef fn_{i}(): return process({i})\n"
+            )
+
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Simulate that core.py was last modified 90 days ago
+        core_fp = "core.py"
+        with patch("tempograph.git.file_last_modified_days", return_value=90):
+            out = render_hotspots(g)
+        assert "Stable hot:" in out, (
+            f"Expected 'Stable hot:' for old widely-called symbol; got:\n{out}"
+        )
+
+    def test_stable_hot_absent_for_recently_modified_file(self, tmp_path):
+        """Symbol in recently modified file → no 'Stable hot:' shown."""
+        from unittest.mock import patch
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        (tmp_path / "core.py").write_text("def process(x): return x\n")
+        for i in range(4):
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from core import process\ndef fn_{i}(): return process({i})\n"
+            )
+
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Recently modified (5 days ago) → below 60d threshold
+        with patch("tempograph.git.file_last_modified_days", return_value=5):
+            out = render_hotspots(g)
+        assert "Stable hot:" not in out, (
+            f"'Stable hot:' must not appear for recently modified file; got:\n{out}"
+        )
+
+
+class TestFocusComplexityRelative:
+    """S89 — relative complexity annotation (Nx file avg) in focus mode."""
+
+    def test_relative_cx_shown_for_highly_complex_function(self, tmp_path):
+        """HIGH COMPLEXITY warning includes 'x file avg' when function is 2x+ above file average."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        # complex_fn: simulate high cx by having many simple siblings
+        # We can't set cx directly, but we can use content that tree-sitter parses.
+        # Simple workaround: create a file where one function has many branches
+        content = (
+            "def simple_a(x): return x\n"
+            "def simple_b(x): return x\n"
+            "def simple_c(x): return x\n"
+            "def complex_fn(x):\n"
+            "    if x == 1: return 1\n"
+            "    elif x == 2: return 2\n"
+            "    elif x == 3: return 3\n"
+            "    elif x == 4: return 4\n"
+            "    elif x == 5: return 5\n"
+            "    elif x == 6: return 6\n"
+            "    elif x == 7: return 7\n"
+            "    elif x == 8: return 8\n"
+            "    elif x == 9: return 9\n"
+            "    elif x == 10: return 10\n"
+            "    elif x == 11: return 11\n"
+            "    elif x == 12: return 12\n"
+            "    elif x == 13: return 13\n"
+            "    elif x == 14: return 14\n"
+            "    elif x == 15: return 15\n"
+            "    elif x == 16: return 16\n"
+            "    elif x == 17: return 17\n"
+            "    elif x == 18: return 18\n"
+            "    elif x == 19: return 19\n"
+            "    elif x == 20: return 20\n"
+            "    elif x == 21: return 21\n"
+            "    elif x == 22: return 22\n"
+            "    elif x == 23: return 23\n"
+            "    elif x == 24: return 24\n"
+            "    elif x == 25: return 25\n"
+            "    elif x == 26: return 26\n"
+            "    elif x == 27: return 27\n"
+            "    elif x == 28: return 28\n"
+            "    elif x == 29: return 29\n"
+            "    elif x == 30: return 30\n"
+            "    elif x == 31: return 31\n"
+            "    elif x == 32: return 32\n"
+            "    elif x == 33: return 33\n"
+            "    elif x == 34: return 34\n"
+            "    elif x == 35: return 35\n"
+            "    elif x == 36: return 36\n"
+            "    elif x == 37: return 37\n"
+            "    elif x == 38: return 38\n"
+            "    elif x == 39: return 39\n"
+            "    elif x == 40: return 40\n"
+            "    elif x == 41: return 41\n"
+            "    elif x == 42: return 42\n"
+            "    elif x == 43: return 43\n"
+            "    elif x == 44: return 44\n"
+            "    elif x == 45: return 45\n"
+            "    elif x == 46: return 46\n"
+            "    elif x == 47: return 47\n"
+            "    elif x == 48: return 48\n"
+            "    elif x == 49: return 49\n"
+            "    return 50\n"
+        )
+        (tmp_path / "module.py").write_text(content)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "complex_fn")
+        # Should show HIGH COMPLEXITY with relative annotation
+        assert "HIGH COMPLEXITY" in out, f"Expected HIGH COMPLEXITY warning; got:\n{out}"
+        assert "file avg" in out, f"Expected 'file avg' relative annotation; got:\n{out}"
