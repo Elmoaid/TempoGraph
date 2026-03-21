@@ -2429,6 +2429,25 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — event was removed or never wired; remove or reconnect to event source"
         )
 
+    # S713: Dead serialization functions — unused functions for data format conversion.
+    # Serialization functions (serialize/deserialize/encode/decode/marshal/unmarshal) are
+    # written for specific data formats; dead ones signal format changes or abandoned integrations.
+    _ser_kws713 = ("serialize", "deserialize", "encode", "decode", "marshal", "unmarshal")
+    _dead_ser713 = [
+        s for s in dead
+        if s.kind.value in ("function", "method")
+        and not _is_test_file(s.file_path)
+        and any(kw in s.name.lower() for kw in _ser_kws713)
+    ]
+    if _dead_ser713:
+        _ser_names713 = ", ".join(s.name for s in _dead_ser713[:3])
+        if len(_dead_ser713) > 3:
+            _ser_names713 += f" +{len(_dead_ser713) - 3} more"
+        lines.append(
+            f"dead serialization functions: {len(_dead_ser713)} unused format function(s) ({_ser_names713})"
+            f" — data format changed or integration was abandoned"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

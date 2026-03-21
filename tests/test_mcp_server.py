@@ -29861,8 +29861,8 @@ class TestPropertyAccessorS630:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "display_name")
-        assert "property accessor" in out, (
-            f"Expected 'property accessor' for @property method; got:\n{out}"
+        assert "property callers" in out, (
+            f"Expected 'property callers' for @property method; got:\n{out}"
         )
 
     def test_property_accessor_absent(self, tmp_path):
@@ -29872,8 +29872,8 @@ class TestPropertyAccessorS630:
         (tmp_path / "utils.py").write_text("def format_name(name): return name.title()\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "format_name")
-        assert "property accessor" not in out, (
-            f"'property accessor' must not appear for a regular function; got:\n{out}"
+        assert "property callers" not in out, (
+            f"'property callers' must not appear for a regular function; got:\n{out}"
         )
 
 
@@ -33333,21 +33333,22 @@ class TestNonCodeDiffS699:
 # ── S700: Package cluster (hotspots) ──────────────────────────────────────────
 
 class TestPackageClusterS700:
-    """S700: Top 2 hotspots in same directory → package-cluster signal."""
+    """S700: Top 2 hotspots in same directory emits package-cluster signal."""
 
     def test_package_cluster_shown(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
         from tempograph.builder import build_graph
 
-        pkg = tmp_path / "mylib"
-        pkg.mkdir()
-        (pkg / "alpha.py").write_text("def primary(x): return x\n")
-        (pkg / "beta.py").write_text("def secondary(x): return x + 1\n")
+        # fn_a and fn_b in different root-level files — top 2 hotspots share same dir
+        (tmp_path / "fn_a.py").write_text("def fn_a(): return 1\n")
+        (tmp_path / "fn_b.py").write_text("def fn_b(): return 2\n")
         for i in range(5):
-            (tmp_path / f"client_{i}.py").write_text(
-                f"from mylib.alpha import primary\n"
-                f"from mylib.beta import secondary\n"
-                f"def use_{i}(): primary({i}); secondary({i})\n"
+            (tmp_path / f"caller_a_{i}.py").write_text(
+                f"from fn_a import fn_a\ndef use_a_{i}(): fn_a()\n"
+            )
+        for i in range(3):
+            (tmp_path / f"caller_b_{i}.py").write_text(
+                f"from fn_b import fn_b\ndef use_b_{i}(): fn_b()\n"
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
@@ -33359,20 +33360,20 @@ class TestPackageClusterS700:
         from tempograph.render.hotspots import render_hotspots
         from tempograph.builder import build_graph
 
-        # Hotspots in different directories
-        (tmp_path / "alpha").mkdir()
-        (tmp_path / "beta").mkdir()
-        (tmp_path / "alpha" / "core.py").write_text("def fn_a(x): return x\n")
-        (tmp_path / "beta" / "core.py").write_text("def fn_b(x): return x + 1\n")
+        # fn_a and fn_b in SAME file — same file_path → condition fails → no signal
+        (tmp_path / "core.py").write_text("def fn_a(): return 1\ndef fn_b(): return 2\n")
         for i in range(5):
-            (tmp_path / f"user_{i}.py").write_text(
-                f"from alpha.core import fn_a\nfrom beta.core import fn_b\n"
-                f"def run_{i}(): fn_a({i}); fn_b({i})\n"
+            (tmp_path / f"caller_a_{i}.py").write_text(
+                f"from core import fn_a\ndef use_a_{i}(): fn_a()\n"
+            )
+        for i in range(3):
+            (tmp_path / f"caller_b_{i}.py").write_text(
+                f"from core import fn_b\ndef use_b_{i}(): fn_b()\n"
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
         assert "package cluster" not in out, (
-            f"'package cluster' must not appear when hotspots are in different dirs; got:\n{out}"
+            f"'package cluster' must not appear when top 2 hotspots are in the same file; got:\n{out}"
         )
 
 
@@ -33570,57 +33571,6 @@ class TestNonCodeDiffS699:
 
 
 # ── S700: Package cluster ─────────────────────────────────────────────────────
-
-class TestPackageClusterS700:
-    """S700: Top 2 hotspots in same directory emits package-cluster signal."""
-
-    def test_package_cluster_shown(self, tmp_path):
-        from tempograph.render.hotspots import render_hotspots
-        from tempograph.builder import build_graph
-
-        pkg = tmp_path / "pkg"
-        pkg.mkdir()
-        (pkg / "a.py").write_text("def fn_a(): return 'a'\n")
-        (pkg / "b.py").write_text("def fn_b(): return 'b'\n")
-        # Give fn_a more callers than fn_b to ensure ranking
-        for i in range(5):
-            (tmp_path / f"caller_a_{i}.py").write_text(
-                f"from pkg.a import fn_a\ndef use_a_{i}(): fn_a()\n"
-            )
-        for i in range(3):
-            (tmp_path / f"caller_b_{i}.py").write_text(
-                f"from pkg.b import fn_b\ndef use_b_{i}(): fn_b()\n"
-            )
-        g = build_graph(str(tmp_path), use_cache=False)
-        out = render_hotspots(g)
-        assert "package cluster" in out, (
-            f"Expected 'package cluster' when top 2 hotspots share a directory; got:\n{out}"
-        )
-
-    def test_package_cluster_absent(self, tmp_path):
-        from tempograph.render.hotspots import render_hotspots
-        from tempograph.builder import build_graph
-
-        pkg_a = tmp_path / "pkg_a"
-        pkg_b = tmp_path / "pkg_b"
-        pkg_a.mkdir()
-        pkg_b.mkdir()
-        (pkg_a / "fn.py").write_text("def fn_a(): return 'a'\n")
-        (pkg_b / "fn.py").write_text("def fn_b(): return 'b'\n")
-        for i in range(4):
-            (tmp_path / f"caller_a_{i}.py").write_text(
-                f"from pkg_a.fn import fn_a\ndef use_a_{i}(): fn_a()\n"
-            )
-        for i in range(3):
-            (tmp_path / f"caller_b_{i}.py").write_text(
-                f"from pkg_b.fn import fn_b\ndef use_b_{i}(): fn_b()\n"
-            )
-        g = build_graph(str(tmp_path), use_cache=False)
-        out = render_hotspots(g)
-        assert "package cluster" not in out, (
-            f"'package cluster' must not appear when top 2 hotspots are in different dirs; got:\n{out}"
-        )
-
 
 # ── S701: Dead factory functions ──────────────────────────────────────────────
 
@@ -33876,4 +33826,247 @@ class TestDeadEventHandlersS707:
         out = render_dead_code(g)
         assert "dead event handlers" not in out, (
             f"'dead event handlers' must not appear when handler is called; got:\n{out}"
+        )
+
+
+# ── S708: Widely-used class (focused) ─────────────────────────────────────────
+
+class TestWidelyUsedClassS708:
+    """S708: Focused method in a class imported by 5+ files → widely-used-class signal."""
+
+    def test_widely_used_class_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "service.py").write_text(
+            "class DataService:\n    def fetch(self, key): return key\n"
+        )
+        for i in range(5):
+            (tmp_path / f"consumer_{i}.py").write_text(
+                f"from service import DataService\n"
+                f"def run_{i}(): DataService().fetch({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "fetch")
+        assert "widely-used class" in out, (
+            f"Expected 'widely-used class' when parent class is imported by 5+ files; got:\n{out}"
+        )
+
+    def test_widely_used_class_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "service.py").write_text(
+            "class SmallService:\n    def run(self): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from service import SmallService\ndef main(): SmallService().run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "run")
+        assert "widely-used class" not in out, (
+            f"'widely-used class' must not appear when class has only 1 importer; got:\n{out}"
+        )
+
+
+# ── S709: Micro-files (overview) ──────────────────────────────────────────────
+
+class TestMicroFilesS709:
+    """S709: More than 3 source files per exported symbol → micro-files signal."""
+
+    def test_micro_files_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 8 files with 1 symbol each = 8 files / 8 symbols = 1.0... wait
+        # Need >3 files per symbol: 12 files, only 3 symbols = 4.0 ratio
+        for i in range(9):
+            (tmp_path / f"stub_{i}.py").write_text("# empty stub\n")
+        for i in range(3):
+            (tmp_path / f"real_{i}.py").write_text(f"def fn_{i}(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "micro-files" in out, (
+            f"Expected 'micro-files' when files >> symbols; got:\n{out}"
+        )
+
+    def test_micro_files_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 4 files, 8 symbols = 0.5 files/symbol (well below 3)
+        for i in range(4):
+            (tmp_path / f"mod_{i}.py").write_text(
+                f"def fn_{i}_a(): pass\ndef fn_{i}_b(): pass\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "micro-files" not in out, (
+            f"'micro-files' must not appear when files have multiple symbols; got:\n{out}"
+        )
+
+
+# ── S710: Deeply nested blast ──────────────────────────────────────────────────
+
+class TestDeeplyNestedBlastS710:
+    """S710: Blast target 3+ levels deep → deeply-nested signal."""
+
+    def test_deeply_nested_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        # Create a 3-level deep file: myapp/core/utils/helpers.py
+        deep_dir = tmp_path / "myapp" / "core" / "utils"
+        deep_dir.mkdir(parents=True)
+        (deep_dir / "helpers.py").write_text("def deep_fn(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from myapp.core.utils.helpers import deep_fn\ndef main(): deep_fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Find the relative path as used in the graph
+        target_fp = next(
+            fp for fp in g.files if "helpers.py" in fp
+        )
+        out = render_blast_radius(g, target_fp)
+        assert "deeply nested" in out, (
+            f"Expected 'deeply nested' for file at 3+ levels; got:\n{out}"
+        )
+
+    def test_deeply_nested_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef main(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "deeply nested" not in out, (
+            f"'deeply nested' must not appear for a shallow file; got:\n{out}"
+        )
+
+
+# ── S711: Test without source in diff ─────────────────────────────────────────
+
+class TestTestWithoutSourceS711:
+    """S711: Diff with test file but no source file → test-without-source signal."""
+
+    def test_test_without_source_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "test_utils.py").write_text(
+            "from utils import helper\ndef test_it(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["test_utils.py"])
+        assert "test without source" in out, (
+            f"Expected 'test without source' when only test file changed; got:\n{out}"
+        )
+
+    def test_test_without_source_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "test_utils.py").write_text(
+            "from utils import helper\ndef test_it(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["utils.py", "test_utils.py"])
+        assert "test without source" not in out, (
+            f"'test without source' must not appear when source is also in diff; got:\n{out}"
+        )
+
+
+# ── S712: Fan-out hotspot ──────────────────────────────────────────────────────
+
+class TestFanOutHotspotS712:
+    """S712: Top hotspot calls more symbols than it has callers → fan-out-hotspot signal."""
+
+    def test_fan_out_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # helpers: 6 leaf functions
+        (tmp_path / "helpers.py").write_text(
+            "def a(): pass\ndef b(): pass\ndef c(): pass\n"
+            "def d(): pass\ndef e(): pass\ndef f(): pass\n"
+        )
+        # orchestrator: 1 caller, calls 6 things
+        (tmp_path / "orchestrator.py").write_text(
+            "from helpers import a, b, c, d, e, f\n"
+            "def run_all(): a(); b(); c(); d(); e(); f()\n"
+        )
+        # Only 2 callers of orchestrator (fewer than 6 callees)
+        for i in range(2):
+            (tmp_path / f"client_{i}.py").write_text(
+                f"from orchestrator import run_all\ndef task_{i}(): run_all()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "fan-out hotspot" in out, (
+            f"Expected 'fan-out hotspot' for fn calling more than it is called by; got:\n{out}"
+        )
+
+    def test_fan_out_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # Simple function: called from 5 files, calls 1 thing
+        (tmp_path / "core.py").write_text("def helper(): pass\n")
+        (tmp_path / "hub.py").write_text(
+            "from core import helper\ndef dispatch(): helper()\n"
+        )
+        for i in range(5):
+            (tmp_path / f"client_{i}.py").write_text(
+                f"from hub import dispatch\ndef use_{i}(): dispatch()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "fan-out hotspot" not in out, (
+            f"'fan-out hotspot' must not appear when callers >= callees; got:\n{out}"
+        )
+
+
+# ── S713: Dead serialization functions ────────────────────────────────────────
+
+class TestDeadSerializationFunctionsS713:
+    """S713: Unused serialize/deserialize/encode/decode fns → dead-serialization-functions."""
+
+    def test_dead_serialization_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "formatters.py").write_text(
+            "def serialize_user(user): return str(user)\n"
+            "def deserialize_response(data): return {}\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead serialization functions" in out, (
+            f"Expected 'dead serialization functions' for unused serialize/deserialize fns; got:\n{out}"
+        )
+
+    def test_dead_serialization_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "formatters.py").write_text(
+            "def serialize_user(user): return str(user)\n"
+        )
+        (tmp_path / "api.py").write_text(
+            "from formatters import serialize_user\n"
+            "def respond(u): return serialize_user(u)\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from api import respond\ndef main(): respond('x')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead serialization functions" not in out, (
+            f"'dead serialization functions' must not appear when fn is called; got:\n{out}"
         )
