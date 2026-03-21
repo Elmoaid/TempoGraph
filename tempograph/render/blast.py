@@ -865,6 +865,36 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — edit the generator/template, not this file directly"
         )
 
+    # S301: Large API surface — target file exports 15+ distinct symbols.
+    # Files with large symbol counts have wide blast radii even without explicit importers;
+    # any rename, signature change, or removal can break many unknown consumers.
+    _s301_exported = [
+        s for s in graph.symbols.values()
+        if s.file_path == file_path and s.exported
+        and s.kind.value in ("function", "method", "class", "variable", "constant")
+    ]
+    if len(_s301_exported) >= 15:
+        lines.append(
+            f"large API surface: {len(_s301_exported)} exported symbols"
+            f" — wide blast radius; renaming or removing any symbol breaks unknown callers"
+        )
+
+    # S307: Routing-layer blast — target is imported by files in routes/controllers/views dirs.
+    # Route files are the entry-surface of the application; changes to imported utilities
+    # may affect request handling, authentication, or serialization globally.
+    _s307_route_dirs = ("routes", "controllers", "views", "handlers", "endpoints", "api")
+    _s307_route_importers: list[str] = []
+    for _imp307 in importers:
+        _parts307 = _imp307.lower().replace("\\", "/").split("/")
+        if any(p in _s307_route_dirs for p in _parts307):
+            _s307_route_importers.append(_imp307)
+    if len(_s307_route_importers) >= 2:
+        _ri_names307 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s307_route_importers[:2])
+        lines.append(
+            f"routing-layer blast: imported by {len(_s307_route_importers)} route/controller file(s)"
+            f" ({_ri_names307}) — changes here affect request handling directly"
+        )
+
     if not importers and not external_callers and not render_targets:
         lines.append("No external dependencies found — safe to modify in isolation.")
 

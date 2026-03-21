@@ -1618,6 +1618,42 @@ def render_overview(graph: Tempo) -> str:
             f" — multi-language repo; each adds toolchain and CI complexity"
         )
 
+    # S300: Multi-package repo — 3+ independent setup.py/pyproject.toml/package.json files.
+    # Monorepos with multiple packages require coordinating version bumps, shared deps,
+    # and release cycles across all packages simultaneously.
+    _s300_pkg_files = {
+        "setup.py", "setup.cfg", "pyproject.toml", "package.json", "Cargo.toml",
+        "go.mod", "pom.xml", "build.gradle",
+    }
+    _s300_pkg_dirs: list[str] = []
+    for _fp300 in graph.files:
+        _name300 = _fp300.rsplit("/", 1)[-1]
+        if _name300 in _s300_pkg_files:
+            _dir300 = _fp300.rsplit("/", 1)[0] if "/" in _fp300 else "."
+            _s300_pkg_dirs.append(_dir300)
+    _s300_unique_dirs = list(dict.fromkeys(_s300_pkg_dirs))  # preserve order, deduplicate
+    if len(_s300_unique_dirs) >= 3:
+        lines.append(
+            f"multi-package: {len(_s300_unique_dirs)} packages detected"
+            f" — monorepo; cross-package changes need coordinated versioning"
+        )
+
+    # S306: Plugin-heavy — 5+ source files in plugins/extensions/addons/modules directory.
+    # Plugin-heavy codebases require understanding the plugin lifecycle and dispatch model
+    # before making changes that touch the extension API.
+    _s306_plugin_dirs = ("plugins", "extensions", "addons", "modules", "extras", "contrib")
+    _s306_plugin_files: list[str] = []
+    for _fp306 in graph.files:
+        _parts306 = _fp306.lower().replace("\\", "/").split("/")
+        if any(p in _s306_plugin_dirs for p in _parts306[:-1]):
+            if not _is_test_file(_fp306):
+                _s306_plugin_files.append(_fp306)
+    if len(_s306_plugin_files) >= 5:
+        lines.append(
+            f"plugin-heavy: {len(_s306_plugin_files)} files in plugin/extension directories"
+            f" — understand the plugin lifecycle before touching extension APIs"
+        )
+
         # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)
     if noisy:
