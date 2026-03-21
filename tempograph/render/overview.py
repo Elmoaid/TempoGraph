@@ -2700,6 +2700,26 @@ def _signals_async_oop(
             " — all changes are untested; add a test suite before refactoring"
         )
 
+    # S673: Dominant file — one non-test file holds >30% of all repo symbols.
+    # A file that dominates the symbol count is a gravity well that accumulates
+    # responsibilities; it should be the first target for decomposition.
+    _total_syms673 = sum(
+        1 for s in graph.symbols.values()
+        if not _is_test_file(s.file_path) and s.parent_id is None
+    )
+    if _total_syms673 > 0:
+        _file_counts673: dict[str, int] = {}
+        for s in graph.symbols.values():
+            if not _is_test_file(s.file_path) and s.parent_id is None:
+                _file_counts673[s.file_path] = _file_counts673.get(s.file_path, 0) + 1
+        _top_fp673 = max(_file_counts673, key=lambda f: _file_counts673[f], default=None)
+        if _top_fp673 and _file_counts673[_top_fp673] / _total_syms673 > 0.30:
+            _pct673 = int(_file_counts673[_top_fp673] / _total_syms673 * 100)
+            lines.append(
+                f"dominant file: {_top_fp673.rsplit('/', 1)[-1]} holds {_pct673}% of repo symbols"
+                f" — gravity-well file; prioritize decomposing this file"
+            )
+
     return lines
 
 
