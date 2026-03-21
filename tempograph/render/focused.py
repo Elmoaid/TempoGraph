@@ -3228,7 +3228,7 @@ def _signals_focused_fn_advanced(
         ):
             _callers630 = graph.callers_of(_prim630.id)
             lines.append(
-                f"\nproperty accessor: {_prim630.name} is a @property accessed by {len(_callers630)} caller(s)"
+                f"\nproperty callers: {_prim630.name} is a @property accessed by {len(_callers630)} caller(s)"
                 f" — looks like an attribute read but executes code; relevant if lazy/cached/expensive"
             )
 
@@ -3451,6 +3451,29 @@ def _signals_focused_fn_advanced(
                     f"\nhigh arity: {_prim702.name} has {_arity702} parameters"
                     f" — consider grouping parameters into a config/options object"
                 )
+
+    # S708: Widely-used class — focused method's parent class is imported in 5+ files.
+    # A method inside a widely-imported class has amplified blast radius;
+    # even a small signature change affects every file that instantiates or inherits the class.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim708 = _seed_syms[0]
+        if (
+            not _is_test_file(_prim708.file_path)
+            and _prim708.kind.value == "method"
+            and _prim708.parent_id is not None
+        ):
+            _parent708 = graph.symbols.get(_prim708.parent_id)
+            if _parent708 is not None:
+                _class_importers708 = [
+                    f for f in graph.importers_of(_parent708.file_path)
+                    if f != _parent708.file_path
+                ]
+                if len(_class_importers708) >= 5:
+                    lines.append(
+                        f"\nwidely-used class: {_parent708.name} is imported by"
+                        f" {len(_class_importers708)} files"
+                        f" — method changes affect all class consumers; check all call sites"
+                    )
 
     return lines
 

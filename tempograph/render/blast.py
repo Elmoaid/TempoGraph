@@ -1906,6 +1906,16 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — leaf module; changes are contained; only caller-side integration matters"
             )
 
+    # S710: Deeply nested blast — blast target is 3+ directory levels below the repo root.
+    # Files buried deep in the directory tree are harder to discover, require long import paths,
+    # and are more likely to be missed when searching for related code.
+    _depth710 = len(_fp589.replace("\\", "/").split("/"))
+    if _depth710 >= 4:  # root/a/b/c/file.py = 5 parts but relative path starts at level 1
+        lines.append(
+            f"deeply nested: {_fp589.rsplit('/', 1)[-1]} is at depth {_depth710 - 1}"
+            f" in the directory tree — hard-to-find file; consider flattening"
+        )
+
     return "\n".join(lines)
 
 

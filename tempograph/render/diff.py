@@ -337,6 +337,18 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — focused change; verify blast radius of this file before merging"
         )
 
+    # S711: Test without source in diff — a test file is in diff but its source file is not.
+    # When tests are modified without touching the source, the change may:
+    # (a) add tests for existing code, (b) fix broken tests, or (c) leave stale tests.
+    _test_files711 = [f for f in changed_files if _is_test_file(f)]
+    _src_files711 = [f for f in changed_files if not _is_test_file(f)]
+    if _test_files711 and not _src_files711:
+        _test_name711 = _test_files711[0].rsplit("/", 1)[-1]
+        lines.append(
+            f"test without source: {_test_name711} changed with no source file"
+            f" — verify tests reflect correct expected behavior; no production code changed"
+        )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
