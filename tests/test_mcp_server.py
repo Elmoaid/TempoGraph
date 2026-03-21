@@ -3324,3 +3324,88 @@ class TestFocusDependencyFiles:
         assert "\nDepends on:" in out, f"Depends on: must appear; got:\n{out}"
         assert "verify_token" in out, f"callee name verify_token must appear; got:\n{out}"
         assert "get_cached" in out, f"callee name get_cached must appear; got:\n{out}"
+
+
+class TestBlastTestCoverage:
+    """Tests for 'Tests to run:' section in render_blast_radius (S20).
+
+    When a file is targeted by blast mode, the output should list test files
+    that directly call symbols from that file or directly import it.
+    Files with no test coverage should not show the section.
+    """
+
+    def _build(self, tmp_path, files: dict) -> object:
+        from tempograph.builder import build_graph
+
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_tests_section_shown_when_test_calls_symbol(self, tmp_path):
+        """Blast shows 'Tests to run:' when a test file calls a symbol from the target."""
+        from tempograph.render import render_blast_radius
+
+        g = self._build(tmp_path, {
+            "utils.py": "def helper():\n    return 1\n",
+            "test_utils.py": "from utils import helper\n\ndef test_helper():\n    assert helper() == 1\n",
+        })
+        out = render_blast_radius(g, "utils.py")
+
+        assert "Tests to run" in out, f"Must show 'Tests to run' when test calls target symbol; got:\n{out}"
+        assert "test_utils.py" in out, f"Must name the test file; got:\n{out}"
+
+    def test_tests_section_absent_when_no_test_coverage(self, tmp_path):
+        """Blast omits 'Tests to run:' when no test files cover the target."""
+        from tempograph.render import render_blast_radius
+
+        g = self._build(tmp_path, {
+            "core.py": "def fn():\n    pass\n",
+            "user.py": "from core import fn\n\ndef use_fn():\n    fn()\n",
+        })
+        out = render_blast_radius(g, "core.py")
+
+        assert "Tests to run" not in out, (
+            f"Must NOT show 'Tests to run' when no test files cover target; got:\n{out}"
+        )
+
+    def test_tests_section_counts_calls(self, tmp_path):
+        """Tests to run: shows call count annotation when test calls multiple symbols."""
+        from tempograph.render import render_blast_radius
+        import re
+
+        g = self._build(tmp_path, {
+            "lib.py": "def a():\n    pass\n\ndef b():\n    pass\n",
+            "test_lib.py": (
+                "from lib import a, b\n\n"
+                "def test_a():\n    a()\n\n"
+                "def test_b():\n    b()\n\n"
+                "def test_both():\n    a()\n    b()\n"
+            ),
+        })
+        out = render_blast_radius(g, "lib.py")
+
+        assert "Tests to run" in out, f"Must show Tests to run; got:\n{out}"
+        assert "test_lib.py" in out, f"Must name test_lib.py; got:\n{out}"
+        # Should show call count annotation
+        assert "call" in out, f"Must annotate call count; got:\n{out}"
+
+    def test_tests_deduplication(self, tmp_path):
+        """Each test file appears only once even if it calls multiple symbols."""
+        from tempograph.render import render_blast_radius
+
+        g = self._build(tmp_path, {
+            "service.py": "def create():\n    pass\n\ndef delete():\n    pass\n\ndef update():\n    pass\n",
+            "test_service.py": (
+                "from service import create, delete, update\n\n"
+                "def test_create():\n    create()\n\n"
+                "def test_delete():\n    delete()\n\n"
+                "def test_update():\n    update()\n"
+            ),
+        })
+        out = render_blast_radius(g, "service.py")
+
+        assert "Tests to run" in out, f"Must show Tests to run; got:\n{out}"
+        # Extract only the "Tests to run" block and count occurrences there
+        tests_block = out[out.find("Tests to run"):]
+        count = tests_block.count("test_service.py")
+        assert count == 1, f"test_service.py should appear exactly once in Tests to run block, got {count}; block:\n{tests_block}"
