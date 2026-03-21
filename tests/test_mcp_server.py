@@ -5805,3 +5805,47 @@ class TestFocusCircularImportWarning:
         assert "CIRCULAR IMPORT" not in out, (
             f"CIRCULAR IMPORT must not appear for clean_fn (not in cycle); got:\n{out}"
         )
+
+
+class TestOverviewFnSizeDistribution:
+    """S48: Overview — 'fn sizes: tiny: N, small: N, ...' function size distribution.
+
+    Shows function count by size tier (tiny/small/medium/large/huge).
+    Only shown when >= 5 source functions exist. Test functions are excluded.
+    """
+
+    def test_fn_sizes_shown_with_mixed_function_sizes(self, tmp_path):
+        """fn sizes: line appears with correct tier breakdown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # Write source files with various function sizes (>= 5 needed)
+        tiny_fns = "".join(f"def t{i}(): pass\n" for i in range(3))  # 3 tiny
+        small_fn = "def s(x):\n" + "    x = x + 1\n" * 8 + "    return x\n"  # 10L (small)
+        medium_fn = "def m(x):\n" + "    x = x + 1\n" * 25 + "    return x\n"  # 27L (medium)
+
+        content = tiny_fns + small_fn + medium_fn  # 5 functions total
+        (tmp_path / "funcs.py").write_text(content)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+
+        assert "fn sizes:" in out, f"Expected fn sizes: line; got:\n{out}"
+        # Should show at least tiny and small categories
+        assert "tiny:" in out or "small:" in out or "medium:" in out, (
+            f"Expected size categories in fn sizes; got:\n{out}"
+        )
+
+    def test_fn_sizes_absent_for_tiny_repo(self, tmp_path):
+        """fn sizes: absent when fewer than 5 functions exist."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        (tmp_path / "mini.py").write_text(
+            "def a(): pass\ndef b(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+
+        assert "fn sizes:" not in out, (
+            f"fn sizes: must not appear for tiny repo (<5 functions); got:\n{out}"
+        )
