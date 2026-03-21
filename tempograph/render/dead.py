@@ -748,6 +748,30 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — removed error paths not yet cleaned up"
         )
 
+
+    # S257: Dead type definitions — Schema/DTO/Request/Response/Config classes with 0 callers.
+    # Dead type definitions suggest removed features or migrated data contracts that
+    # were never cleaned up; they bloat the type system and mislead readers.
+    # Only shown when 2+ such classes found (conf >= 40).
+    _s257_type_suffixes = ("schema", "dto", "request", "response", "config", "settings",
+                           "payload", "params", "options", "data", "model", "spec")
+    _s257_dead_types = [
+        sym for sym, conf in scored
+        if conf >= 40
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value == "class"
+        and any(sym.name.lower().endswith(ind) for ind in _s257_type_suffixes)
+    ]
+    if len(_s257_dead_types) >= 2:
+        _type_names = [s.name for s in _s257_dead_types[:3]]
+        _type_str = ", ".join(_type_names)
+        if len(_s257_dead_types) > 3:
+            _type_str += f" +{len(_s257_dead_types) - 3} more"
+        lines.append(
+            f"dead type defs: {len(_s257_dead_types)} unused type class(es) ({_type_str})"
+            f" — removed data contracts not yet cleaned up"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
