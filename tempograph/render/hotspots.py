@@ -1895,5 +1895,17 @@ def _collect_hotspots_signals(
                     f" real complexity lives in its callees"
                 )
 
+    # S591: Init-file hotspot — top hotspot symbol lives in a package __init__.py.
+    # Hotspots in __init__ files indicate the package boundary is a logical chokepoint;
+    # any change to the init ripples through all consumers of the package.
+    if scores:
+        _top591 = scores[0][1]
+        _fp591 = _top591.file_path.replace("\\", "/")
+        if not _is_test_file(_fp591) and (_fp591.endswith("/__init__.py") or _fp591 == "__init__.py"):
+            out.append(
+                f"\ninit-file hotspot: {_top591.name} is in __init__.py"
+                f" — package boundary is a chokepoint; changes affect all package consumers"
+            )
+
     return out
 
