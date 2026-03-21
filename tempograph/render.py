@@ -119,17 +119,22 @@ def render_overview(graph: Tempo) -> str:
         parts.append(fi.language.value)
         lines.append(f"  {fi.path} ({', '.join(parts)})")
 
-    # Recently active: top commit-hot files give agents an activity signal at orientation time
+    # Recently active: top commit-hot SOURCE files (excludes docs/config/tests)
+    _SRC_EXTS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java",
+                 ".rb", ".cpp", ".c", ".h", ".cs", ".swift", ".kt", ".php"}
     try:
         from .git import file_commit_counts as _file_commit_counts
         _commit_counts = _file_commit_counts(graph.root)
         _active = sorted(
             [(fp, c) for fp, c in _commit_counts.items()
-             if fp in graph.files and not _is_test_file(fp)],
+             if fp in graph.files and not _is_test_file(fp)
+             and Path(fp).suffix in _SRC_EXTS],
             key=lambda x: -x[1],
         )[:3]
         if _active:
-            _act_str = ", ".join(f"{fp.rsplit('/', 1)[-1]} ({c})" for fp, c in _active)
+            segs_list = [fp.replace("\\", "/").split("/") for fp, _ in _active]
+            short = ["/".join(s[-2:]) if len(s) > 1 else s[-1] for s in segs_list]
+            _act_str = ", ".join(f"{sh} ({c})" for sh, (_, c) in zip(short, _active))
             lines.append("")
             lines.append(f"recently active: {_act_str}")
     except Exception:
