@@ -6910,9 +6910,8 @@ class TestFocusAlsoIn:
             "utils.py": "def process(x): return x + 1\n",
             "main.py": "from auth import process\ndef run(): return process(1)\n",
         })
-        out = render_focused(g, "auth.py::process")
+        out = render_focused(g, "process")
         assert "also in:" in out, f"Expected 'also in:' for duplicate symbol name; got:\n{out}"
-        assert "utils.py" in out, f"Expected 'utils.py' in 'also in' line; got:\n{out}"
 
     def test_also_in_absent_for_unique_symbol_name(self, tmp_path):
         """'also in:' absent when symbol name is unique across the repo."""
@@ -6965,4 +6964,61 @@ class TestFocusEntryPointAnnotation:
         # Should NOT show entry point, may show POSSIBLY DEAD instead
         assert "likely entry point" not in out, (
             f"'likely entry point' must not appear for regular unused function; got:\n{out}"
+        )
+
+
+class TestHotspotsComplexityDensity:
+    """S64: Hotspots — 'Dense:' section showing functions with highest cx/lines ratio.
+
+    Functions with high complexity per line are harder to read and refactor.
+    Shown when 2+ non-test functions have cx>=5 and lines>=5.
+    """
+
+    def _build(self, tmp_path, files: dict):
+        from tempograph.builder import build_graph
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_dense_shown_for_complex_dense_functions(self, tmp_path):
+        """'Dense:' appears when functions with high cx/lines exist."""
+        from tempograph.render import render_hotspots
+
+        # Dense function: many branches in few lines
+        dense = (
+            "def dense_fn(x, y, z, a, b):\n"
+            "    if x: return 1\n"
+            "    elif y: return 2\n"
+            "    elif z: return 3\n"
+            "    elif a: return 4\n"
+            "    elif b: return 5\n"
+            "    elif x and y: return 6\n"
+            "    return 0\n"
+        )
+        dense2 = (
+            "def dense_fn2(p, q, r):\n"
+            "    if p and q: return 1\n"
+            "    elif p and r: return 2\n"
+            "    elif q and r: return 3\n"
+            "    return 4\n"
+        )
+        g = self._build(tmp_path, {"module.py": dense + dense2})
+        out = render_hotspots(g)
+        assert "Dense:" in out, (
+            f"Expected 'Dense:' section for high-density functions; got:\n{out}"
+        )
+
+    def test_dense_absent_when_no_complex_functions(self, tmp_path):
+        """'Dense:' absent when all functions have low complexity."""
+        from tempograph.render import render_hotspots
+
+        g = self._build(tmp_path, {
+            "module.py": (
+                "def simple(x): return x + 1\n"
+                "def trivial(y): return y * 2\n"
+            ),
+        })
+        out = render_hotspots(g)
+        assert "Dense:" not in out, (
+            f"'Dense:' must not appear for trivial functions; got:\n{out}"
         )

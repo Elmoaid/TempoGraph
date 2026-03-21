@@ -2766,6 +2766,23 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
         lines.append("")
         lines.append(f"Most complex: {', '.join(_cx_parts)}")
 
+    # Complexity density: top functions by cx/lines — most logic-packed, hardest to read.
+    # cx=40 in 30 lines (1.33/L) is harder to understand than cx=40 in 300 lines (0.13/L).
+    _density_syms = sorted(
+        [
+            (sym.complexity / max(sym.line_count, 1), sym)
+            for _, sym in scores
+            if sym.complexity >= 3 and sym.line_count >= 5 and not _is_test_file(sym.file_path)
+        ],
+        key=lambda x: -x[0],
+    )
+    if len(_density_syms) >= 2:
+        _den_parts = [
+            f"{sym.name} (cx:{sym.complexity}, {sym.line_count}L, {den:.2f}/L)"
+            for den, sym in _density_syms[:3]
+        ]
+        lines.append(f"Dense: {', '.join(_den_parts)}")
+
     # Untested hotspots: high-scoring symbols in files with no test coverage.
     # The riskiest code to modify: high coupling/complexity AND no safety net.
     # Only shown when test files exist in the project (otherwise whole project lacks tests).
