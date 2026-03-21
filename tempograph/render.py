@@ -3922,6 +3922,19 @@ def render_architecture(graph: Tempo) -> str:
             dep_str = ", ".join(f"{tgt}({n})" for tgt, n in targets[:6])
             extra = f" +{len(targets) - 6}" if len(targets) > 6 else ""
             lines.append(f"  {src} → {dep_str}{extra}")
+
+        # Circular module dependency detection: flag A→B→A at the module level.
+        # File-level cycles are detected by deps mode; this is the coarser module view.
+        _circ_pairs: list[tuple[str, str]] = []
+        for _m1 in all_deps:
+            for _m2 in all_deps.get(_m1, {}):
+                if _m1 in all_deps.get(_m2, {}):
+                    _pair = tuple(sorted([_m1, _m2]))
+                    if _pair not in _circ_pairs:
+                        _circ_pairs.append(_pair)  # type: ignore[arg-type]
+        if _circ_pairs:
+            _cp_str = ", ".join(f"{a} ↔ {b}" for a, b in _circ_pairs)
+            lines.append(f"\n⚠ circular module deps: {_cp_str} — architectural smell, consider decoupling")
     else:
         lines.append("No cross-module dependencies detected.")
 

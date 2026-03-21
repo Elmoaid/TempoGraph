@@ -9177,3 +9177,45 @@ class TestDeadCodeDeadAPI:
         assert "Dead API" not in out, (
             f"'Dead API' must not appear when exported functions have callers; got:\n{out}"
         )
+
+
+class TestArchCircularModuleDeps:
+    """S90 — circular module dependency warning in arch mode."""
+
+    def test_circular_module_dep_flagged(self, tmp_path):
+        """Arch mode flags circular module dependencies (A → B → A)."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_architecture
+
+        # Create two subdirectories that import from each other
+        (tmp_path / "modA").mkdir()
+        (tmp_path / "modB").mkdir()
+        (tmp_path / "modA" / "__init__.py").write_text("")
+        (tmp_path / "modB" / "__init__.py").write_text("")
+        (tmp_path / "modA" / "core.py").write_text(
+            "from modB.util import helper\ndef core_fn(): return helper()\n"
+        )
+        (tmp_path / "modB" / "util.py").write_text(
+            "from modA.core import core_fn\ndef helper(): return core_fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_architecture(g)
+        assert "circular module deps:" in out, (
+            f"Expected 'circular module deps:' for A↔B cycle; got:\n{out}"
+        )
+        assert "↔" in out, f"Expected '↔' to show bidirectional dep; got:\n{out}"
+
+    def test_no_circular_dep_when_one_direction(self, tmp_path):
+        """Arch mode does NOT flag one-directional module dependencies."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_architecture
+
+        (tmp_path / "lib").mkdir()
+        (tmp_path / "lib" / "__init__.py").write_text("")
+        (tmp_path / "lib" / "util.py").write_text("def helper(): return 42\n")
+        (tmp_path / "app.py").write_text("from lib.util import helper\ndef run(): return helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_architecture(g)
+        assert "circular module deps:" not in out, (
+            f"'circular module deps:' must not appear for one-way deps; got:\n{out}"
+        )
