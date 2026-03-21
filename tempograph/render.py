@@ -1364,6 +1364,28 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             lines.append(f"Transitive cascade: {_total} file(s) up to depth {_max_d} ({_depth_str})")
             lines.append("")
 
+    # Test files: collect test files that directly call symbols in this file
+    # or directly import this file. Shows agents exactly which tests to run.
+    _blast_tests: dict[str, int] = {}  # test_file_path → symbol call count
+    for sym in symbols:
+        for caller in graph.callers_of(sym.id):
+            if caller.file_path != file_path and _is_test_file(caller.file_path):
+                _blast_tests[caller.file_path] = _blast_tests.get(caller.file_path, 0) + 1
+    # Also include test files that directly import this file
+    for imp in importers:
+        if _is_test_file(imp):
+            _blast_tests.setdefault(imp, 0)
+    if _blast_tests:
+        _sorted_tests = sorted(_blast_tests.items(), key=lambda x: -x[1])
+        _shown = _sorted_tests[:5]
+        lines.append(f"Tests to run ({len(_blast_tests)}):")
+        for _tfp, _cnt in _shown:
+            _lbl = f" ({_cnt} call{'s' if _cnt != 1 else ''})" if _cnt else ""
+            lines.append(f"  {_tfp}{_lbl}")
+        if len(_blast_tests) > 5:
+            lines.append(f"  ... and {len(_blast_tests) - 5} more")
+        lines.append("")
+
     if not importers and not external_callers and not render_targets:
         lines.append("No external dependencies found — safe to modify in isolation.")
 
