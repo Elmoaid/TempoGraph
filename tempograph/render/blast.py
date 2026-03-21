@@ -1619,6 +1619,16 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — de-facto stable API; signature changes require updating many call sites"
             )
 
+    # S589: Init-file blast — blast target is an __init__.py file.
+    # Changes to package init files affect every consumer of the package;
+    # even additive changes can break star-imports and re-export contracts.
+    _fp589 = file_path.replace("\\", "/")
+    if _fp589.endswith("__init__.py") or _fp589 == "__init__.py":
+        lines.append(
+            f"init file blast: {file_path.rsplit('/', 1)[-1]} is a package __init__"
+            f" — changes affect all consumers of this package; star-import contracts may break"
+        )
+
     return "\n".join(lines)
 
 

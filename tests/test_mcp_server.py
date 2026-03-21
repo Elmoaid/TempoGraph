@@ -27982,3 +27982,199 @@ class TestLowComplexityHotspotS585:
         assert "low-complexity hotspot" not in out, (
             f"'low-complexity hotspot' must not appear for high-complexity hotspot; got:\n{out}"
         )
+
+
+class TestSoleCallerFocusedS587:
+    """S587: Focused function with exactly 1 caller emits sole-caller signal."""
+
+    def test_sole_caller_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helper.py").write_text("def do_thing(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from helper import do_thing\ndef main(): do_thing()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "do_thing")
+        assert "sole caller" in out, (
+            f"Expected 'sole caller' for function with 1 caller; got:\n{out}"
+        )
+
+    def test_sole_caller_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helper.py").write_text("def do_thing(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from helper import do_thing\ndef main(): do_thing()\ndef other(): do_thing()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "do_thing")
+        assert "sole caller" not in out, (
+            f"'sole caller' must not appear for function with 2 callers; got:\n{out}"
+        )
+
+
+class TestSingleLanguageRepoOverviewS588:
+    """S588: All source files in one language emits single-language-repo signal."""
+
+    def test_single_language_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        for name in ("alpha.py", "beta.py", "gamma.py"):
+            (tmp_path / name).write_text("def fn(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single-language repo" in out, (
+            f"Expected 'single-language repo' for all-Python project; got:\n{out}"
+        )
+
+    def test_single_language_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def run(): pass\n")
+        (tmp_path / "utils.js").write_text("function helper() {}\n")
+        (tmp_path / "types.ts").write_text("export type ID = string;\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single-language repo" not in out, (
+            f"'single-language repo' must not appear for multi-language project; got:\n{out}"
+        )
+
+
+class TestInitFileBlastS589:
+    """S589: Blast on __init__.py emits init-file-blast signal."""
+
+    def test_init_file_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("from .core import main\n")
+        (pkg / "core.py").write_text("def main(): pass\n")
+        (tmp_path / "app.py").write_text("from mypkg import main\nmain()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "mypkg/__init__.py")
+        assert "init file blast" in out, (
+            f"Expected 'init file blast' when blasting __init__.py; got:\n{out}"
+        )
+
+    def test_init_file_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "init file blast" not in out, (
+            f"'init file blast' must not appear for non-init file; got:\n{out}"
+        )
+
+
+class TestTestOnlyDiffS590:
+    """S590: Diff with only test files emits test-only-diff signal."""
+
+    def test_test_only_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        (tmp_path / "test_app.py").write_text(
+            "from app import run\ndef test_run(): run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["test_app.py"])
+        assert "test-only diff" in out, (
+            f"Expected 'test-only diff' when only test files changed; got:\n{out}"
+        )
+
+    def test_test_only_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        (tmp_path / "test_app.py").write_text(
+            "from app import run\ndef test_run(): run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "test_app.py"])
+        assert "test-only diff" not in out, (
+            f"'test-only diff' must not appear when source files are also changed; got:\n{out}"
+        )
+
+
+class TestInitFileHotspotS591:
+    """S591: Top hotspot in __init__.py emits init-file-hotspot signal."""
+
+    def test_init_file_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "def dispatch(x): return x\n"
+        )
+        for i in range(4):
+            (tmp_path / f"use_{i}.py").write_text(
+                f"from mypkg import dispatch\ndef fn_{i}(): dispatch({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "init-file hotspot" in out, (
+            f"Expected 'init-file hotspot' for top hotspot in __init__.py; got:\n{out}"
+        )
+
+    def test_init_file_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text("def process(x): return x\n")
+        (tmp_path / "app.py").write_text(
+            "from core import process\ndef run(): process(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "init-file hotspot" not in out, (
+            f"'init-file hotspot' must not appear for non-init hotspot; got:\n{out}"
+        )
+
+
+class TestDeadExceptionClassS592:
+    """S592: Dead exception class (Error/Exception suffix) emits signal."""
+
+    def test_dead_exception_class_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "errors.py").write_text(
+            "class ValidationError(Exception):\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead exception classes" in out, (
+            f"Expected 'dead exception classes' for unused ValidationError; got:\n{out}"
+        )
+
+    def test_dead_exception_class_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "errors.py").write_text(
+            "class ValidationError(Exception):\n    pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from errors import ValidationError\ndef validate(x):\n    raise ValidationError()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead exception classes" not in out, (
+            f"'dead exception classes' must not appear when error class is imported; got:\n{out}"
+        )
