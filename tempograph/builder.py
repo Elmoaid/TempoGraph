@@ -107,6 +107,18 @@ def build_graph(
     # mtime_ns check (nanosecond precision) skips read_bytes()+md5() for unchanged files.
     stored_files: dict[str, tuple[str, int]] = db.get_stored_files() if db else {}
 
+    # Batch all DB writes into one transaction (eliminates N per-file commits → 1).
+    if db:
+        db.begin_batch()
+
+    # Kick off hot-file detection in background so it runs parallel to the parse loop.
+    _is_git = is_git_repo(str(root))
+    _hot_future: concurrent.futures.Future | None = None
+    if _is_git:
+        _hot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _hot_future = _hot_executor.submit(_get_hot_files, str(root))
+        _hot_executor.shutdown(wait=False)
+
     for file_path, rel_path in _walk_files(root, ignore_dirs, ignore_files, include_patterns, exclude_patterns, exclude_dirs):
         ext = file_path.suffix.lower()
         language = EXTENSION_TO_LANGUAGE.get(ext, Language.UNKNOWN)
@@ -194,6 +206,7 @@ def build_graph(
     # Load entire graph from DB in one shot
     if db:
         db.remove_stale_files(current_files)
+        db.end_batch()
         files, symbols, edges = db.load_all(lazy_edges=lazy_edges)
         graph.files = files
         graph.symbols = symbols
@@ -212,11 +225,17 @@ def build_graph(
         _resolve_edges(graph)
     graph.build_indexes()
 
-    # Temporal weighting: populate hot_files from working-tree or recent history.
+    # Temporal weighting: collect hot_files (background thread already running since before parse).
     # Source files only — test files and docs are excluded so that test symbols
     # don't outrank implementations for ambiguous queries.
-    if is_git_repo(str(root)):
-        all_hot = _get_hot_files(str(root))
+    if _is_git:
+        if _hot_future is not None:
+            try:
+                all_hot = _hot_future.result(timeout=5)
+            except Exception:
+                all_hot = set()
+        else:
+            all_hot = _get_hot_files(str(root))
         graph.hot_files = {f for f in all_hot if _is_hot_source_file(f)}
 
     return graph
