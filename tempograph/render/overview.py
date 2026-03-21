@@ -2447,6 +2447,23 @@ def _signals_async_oop(
                 f" — may use dynamic imports, path manipulation, or files are truly unrelated"
             )
 
+    # S588: Single-language repo — all indexed source files share one language.
+    # Homogeneous repos are simpler but less portable; agents can apply language-specific
+    # best practices uniformly. Worth noting when the entire codebase is one language.
+    _s588_langs = {
+        graph.files[fp].language
+        for fp in graph.files
+        if not _is_test_file(fp) and graph.files[fp].language
+    }
+    if len(_s588_langs) == 1:
+        _only_lang588 = next(iter(_s588_langs))
+        _src_count588 = len([fp for fp in graph.files if not _is_test_file(fp)])
+        if _src_count588 >= 3:
+            lines.append(
+                f"single-language repo: all {_src_count588} source files are {_only_lang588}"
+                f" — uniform stack; language-specific linting and type tools apply globally"
+            )
+
     return lines
 
 

@@ -2037,6 +2037,29 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — never instantiated or imported; wiring was never completed; remove or integrate"
         )
 
+    # S592: Dead exception class — unused class whose name ends with Error, Exception, or Warning.
+    # Custom exceptions that are never raised or caught represent abandoned error-handling design;
+    # they add noise to exception hierarchies and mislead readers about error contracts.
+    _exc_suffixes592 = ("Error", "Exception", "Warning", "Fault", "Failure")
+    _dead_exc592: list = []
+    for _sym592 in graph.symbols.values():
+        if (
+            not _is_test_file(_sym592.file_path)
+            and _sym592.kind.value == "class"
+            and _sym592.name.endswith(_exc_suffixes592)
+            and not graph.callers_of(_sym592.id)
+            and not graph.importers_of(_sym592.file_path)
+        ):
+            _dead_exc592.append(_sym592)
+    if _dead_exc592:
+        _exc_names592 = ", ".join(s.name for s in _dead_exc592[:3])
+        if len(_dead_exc592) > 3:
+            _exc_names592 += f" +{len(_dead_exc592) - 3} more"
+        lines.append(
+            f"dead exception classes: {len(_dead_exc592)} unused exception class(es) ({_exc_names592})"
+            f" — never raised or caught; remove or integrate into error-handling contract"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

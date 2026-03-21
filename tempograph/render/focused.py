@@ -3091,6 +3091,20 @@ def _signals_focused_fn_advanced(
                             f" — wide signatures reduce readability; consider a config object or named tuple"
                         )
 
+    # S587: Sole caller — focused function/method has exactly 1 caller across the whole graph.
+    # A symbol with a single caller is tightly coupled to that one consumer and could
+    # be inlined or made private; it is never a stable public API.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim587 = _seed_syms[0]
+        if _prim587.kind.value in ("function", "method") and not _is_test_file(_prim587.file_path):
+            _callers587 = graph.callers_of(_prim587.id)
+            if len(_callers587) == 1:
+                _sole587 = _callers587[0]
+                lines.append(
+                    f"\nsole caller: {_prim587.name} is only called from {_sole587.name}"
+                    f" — consider inlining or making private; not a reusable API"
+                )
+
     return lines
 
 

@@ -1723,4 +1723,20 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — confirm version bump is intentional and changelog is updated"
         )
 
+    # S590: Cross-module diff — changed files span 3+ distinct top-level packages/directories.
+    # Diffs that touch many separate modules simultaneously are harder to review atomically
+    # and increase the risk of subtle interaction bugs between the changed areas.
+    if changed_files:
+        _top_dirs590 = {
+            f.replace("\\", "/").split("/")[0]
+            for f in changed_files
+            if "/" in f.replace("\\", "/")
+        }
+        if len(_top_dirs590) >= 3:
+            _dir_list590 = ", ".join(sorted(_top_dirs590)[:4])
+            lines.append(
+                f"cross-module diff: {len(changed_files)} files across {len(_top_dirs590)} top-level packages ({_dir_list590})"
+                f" — wide-scope diff; review each module's invariants independently"
+            )
+
     return "\n".join(lines)
