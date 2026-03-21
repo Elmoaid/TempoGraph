@@ -5124,3 +5124,53 @@ class TestBlastCochangePartners:
             line = next(l for l in out.split("\n") if "Co-change partners:" in l)
             # Format: "filename.py (XX% recent)" or similar
             assert "%" in line, f"Co-change must include percentage; got:\n{line}"
+
+
+class TestFocusImplementors:
+    """S38: Focus mode — 'implementors:' section for CLASS/INTERFACE seeds.
+
+    When a seed symbol is a class or interface with subclasses/implementors,
+    the focus output should show those implementors inline.
+    """
+
+    def _build(self, tmp_path, files: dict) -> object:
+        from tempograph.builder import build_graph
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_implementors_shown_for_interface_seed(self, tmp_path):
+        """implementors: line appears when an interface has subclasses."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "animal.py": "class Animal:\n    def sound(self): pass\n",
+            "dog.py": "from animal import Animal\nclass Dog(Animal):\n    def sound(self): return 'Woof'\n",
+            "cat.py": "from animal import Animal\nclass Cat(Animal):\n    def sound(self): return 'Meow'\n",
+        })
+        out = render_focused(g, "Animal")
+
+        assert "implementors:" in out, f"Expected implementors section; got:\n{out}"
+        assert "Dog" in out or "Cat" in out, f"Expected Dog or Cat in implementors; got:\n{out}"
+
+    def test_implementors_absent_when_no_subclasses(self, tmp_path):
+        """implementors: line absent when no class inherits from seed."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "animal.py": "class Animal:\n    def sound(self): pass\n",
+        })
+        out = render_focused(g, "Animal")
+
+        assert "implementors:" not in out, f"Unexpected implementors when none exist; got:\n{out}"
+
+    def test_implementors_absent_for_function_seed(self, tmp_path):
+        """implementors: line not shown for function seeds (only CLASS/INTERFACE)."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "utils.py": "def add(x, y):\n    return x + y\n",
+        })
+        out = render_focused(g, "add")
+
+        assert "implementors:" not in out, f"implementors must not appear for function; got:\n{out}"
