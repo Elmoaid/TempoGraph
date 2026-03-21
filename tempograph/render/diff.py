@@ -2705,4 +2705,25 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
                 f" — fixture changes silently affect all dependent tests; run the full test suite"
             )
 
+    # S975: Build config in diff — changed files include build/CI tooling configuration.
+    # Build config changes can silently break deployments in specific environments even
+    # when all code tests pass locally; they require verification across all target envs.
+    if changed_files:
+        _build_names975 = (
+            "makefile", "dockerfile", "docker-compose.yml", "docker-compose.yaml",
+            ".travis.yml", ".circleci", "jenkinsfile", "tox.ini", "setup.cfg",
+            "pyproject.toml", ".github",
+        )
+        _build_files975 = [
+            f for f in changed_files
+            if f.replace("\\", "/").rsplit("/", 1)[-1].lower() in _build_names975
+            or any(kw in f.replace("\\", "/").lower() for kw in (".github/", ".circleci/"))
+        ]
+        if _build_files975:
+            _bname975 = _build_files975[0].replace("\\", "/").rsplit("/", 1)[-1]
+            lines.append(
+                f"build config in diff: {_bname975} — CI/CD or build changes;"
+                f" verify behavior across all target environments, not just local"
+            )
+
     return "\n".join(lines)

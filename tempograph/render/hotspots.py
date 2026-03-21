@@ -2873,5 +2873,23 @@ def _collect_hotspots_signals(
                 f" — API surface; signature or behavior changes may break external consumers"
             )
 
+    # S976: Wide hotspot — top hotspot callers span 3+ distinct directories.
+    # A symbol called from multiple directories crosses module/subsystem boundaries;
+    # changes here require coordinated updates across teams or packages.
+    if scores:
+        _top976 = scores[0][1]
+        if _top976 is not None and not _is_test_file(_top976.file_path):
+            _callers976 = graph.callers_of(_top976.id)
+            _dirs976: set[str] = set()
+            for _c976 in _callers976:
+                if not _is_test_file(_c976.file_path):
+                    _fp976 = _c976.file_path.replace("\\", "/")
+                    _dirs976.add(_fp976.rsplit("/", 1)[0] if "/" in _fp976 else ".")
+            if len(_dirs976) >= 3:
+                out.append(
+                    f"\nwide hotspot: {_top976.name} is called from {len(_dirs976)} directories"
+                    f" — crosses subsystem boundaries; signature changes require cross-team coordination"
+                )
+
     return out
 
