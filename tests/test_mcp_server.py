@@ -28078,35 +28078,40 @@ class TestInitFileBlastS589:
         )
 
 
-class TestTestOnlyDiffS590:
-    """S590: Diff with only test files emits test-only-diff signal."""
+class TestCrossModuleDiffS590:
+    """S590: Diff spanning 3+ top-level packages emits cross-module diff signal."""
 
-    def test_test_only_diff_shown(self, tmp_path):
+    def test_cross_module_shown(self, tmp_path):
         from tempograph.render.diff import render_diff_context
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
-        )
+        for pkg in ["auth", "billing", "notifications", "reporting"]:
+            (tmp_path / pkg).mkdir()
+            (tmp_path / pkg / "main.py").write_text(f"def {pkg}_fn(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_diff_context(g, ["test_app.py"])
-        assert "test-only diff" in out, (
-            f"Expected 'test-only diff' when only test files changed; got:\n{out}"
+        changed = [
+            "auth/main.py",
+            "billing/main.py",
+            "notifications/main.py",
+            "reporting/main.py",
+        ]
+        out = render_diff_context(g, changed_files=changed)
+        assert "cross-module diff" in out, (
+            f"Expected 'cross-module diff' for files across 4 top-level packages; got:\n{out}"
         )
 
-    def test_test_only_diff_absent(self, tmp_path):
+    def test_cross_module_absent(self, tmp_path):
         from tempograph.render.diff import render_diff_context
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
-        )
+        (tmp_path / "auth").mkdir()
+        for name in ["login", "logout", "utils"]:
+            (tmp_path / "auth" / f"{name}.py").write_text(f"def {name}(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_diff_context(g, ["app.py", "test_app.py"])
-        assert "test-only diff" not in out, (
-            f"'test-only diff' must not appear when source files are also changed; got:\n{out}"
+        changed = ["auth/login.py", "auth/logout.py", "auth/utils.py"]
+        out = render_diff_context(g, changed_files=changed)
+        assert "cross-module diff" not in out, (
+            f"'cross-module diff' must not appear for files in 1 top-level package; got:\n{out}"
         )
 
 
