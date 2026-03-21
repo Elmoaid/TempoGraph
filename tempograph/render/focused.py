@@ -2048,6 +2048,21 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                     + " — signature changes cascade to all concrete classes"
                 )
 
+
+    # S253: Fat class — focused symbol is a class with 10+ methods/properties.
+    # Large classes often violate SRP; consider splitting into smaller components.
+    # Only shown when focused symbol is a class and has 10+ child methods.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim253 = next((s for s in _seed_syms if s.kind.value == "class"), None)
+        if _prim253 and _prim253.kind.value == "class":
+            _children253 = graph.children_of(_prim253.id)
+            _methods253 = [c for c in _children253 if c.kind.value in ("method", "function")]
+            if len(_methods253) >= 10:
+                lines.append(
+                    f"\nfat class: {_prim253.name} has {len(_methods253)} methods"
+                    f" — large class; consider splitting into focused components"
+                )
+
     # S244: Property accessor — focused symbol is a @property method.
     # Callers access it like an attribute (no parentheses); renaming or changing type is
     # a breaking change even if the source looks like a function change.

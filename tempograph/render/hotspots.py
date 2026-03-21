@@ -936,6 +936,26 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 f" — whole module is unstable; coordinate changes carefully"
             )
 
+    # S260: Undocumented hotspot — top hotspot fn/method has no docstring.
+    # Frequently-changed undocumented functions accumulate hidden complexity.
+    # Only shown when the top non-test hotspot function has no docstring (empty signature body).
+    if scores:
+        _top253 = next(
+            (sym for _, sym in scores[:5]
+             if sym.kind.value in ("function", "method") and not _is_test_file(sym.file_path)),
+            None
+        )
+        if _top253:
+            _sig253 = _top253.signature or ""
+            # A docstring would typically appear in the signature or be tracked as metadata.
+            # Heuristic: if name doesn't end in _ (dunder) and has no docstring indicator.
+            _has_doc = '"""' in _sig253 or "'''" in _sig253 or "# doc" in _sig253
+            if not _has_doc and not _top253.name.startswith("__"):
+                lines.append(
+                    f"\nundocumented hotspot: {_top253.name}"
+                    f" — top hotspot has no docstring; add docs when modifying"
+                )
+
     # S242: Test file hotspot — top hotspot symbol lives in a test file.
     # Frequently-changed test code suggests flaky tests, brittle fixtures, or rapidly-evolving specs.
     # Only shown when the top-ranked hotspot symbol is itself in a test file.
@@ -949,5 +969,28 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 f"\ntest file hotspot: {_top242_sym.name} ({_top242_sym.file_path.rsplit('/', 1)[-1]})"
                 f" — most-changed symbol is in a test; consider stabilizing test infrastructure"
             )
+
+
+    # S255: Utility hotspot — the top-ranked hotspot lives in a generic utility module.
+    # Utility modules are shared across many callers; hotspot status here risks coupling
+    # unrelated features through shared helpers.
+    # Only shown when the top hotspot file is named utils/helpers/common/shared/base.
+    _s255_util_stems = {"utils", "util", "helpers", "helper", "common", "shared", "base",
+                        "mixins", "mixin", "tools", "lib", "misc", "core"}
+    if scores:
+        _s255_seen: set[str] = set()
+        for _, _sym255 in scores[:5]:
+            _fp255 = _sym255.file_path
+            if _fp255 in _s255_seen or _is_test_file(_fp255):
+                continue
+            _s255_seen.add(_fp255)
+            _stem255 = _fp255.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+            if _stem255 in _s255_util_stems:
+                _importers255 = len(graph.importers_of(_fp255))
+                lines.append(
+                    f"\nutility hotspot: {_fp255.rsplit('/', 1)[-1]} is a shared utility"
+                    f" ({_importers255} importer(s)) — changes here have wide blast radius"
+                )
+                break
 
     return "\n".join(lines)  # ALWAYS return here — never inside a conditional block
