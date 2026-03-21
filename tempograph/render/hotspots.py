@@ -1838,5 +1838,31 @@ def _collect_hotspots_signals(
                     f" — hidden global dependency; signature changes cascade across all packages"
                 )
 
+    # S568: Deep hotspot — top hotspot lives 3+ directory levels deep.
+    # Hotspots buried in deep module hierarchies indicate that important shared logic
+    # is hiding in a sub-component; it may need promotion to a shallower, more visible module.
+    if scores:
+        _top568 = scores[0][1]
+        if not _is_test_file(_top568.file_path):
+            _parts568 = _top568.file_path.replace("\\", "/").split("/")
+            if len(_parts568) >= 4:  # ≥3 directory levels (a/b/c/file.py)
+                out.append(
+                    f"\ndeep hotspot: {_top568.name} is the top hotspot but buried {len(_parts568) - 1} levels deep"
+                    f" — important code in a deep submodule; consider promoting to a shallower location"
+                )
+
+    # S574: Test-dominated hotspot — top hotspot has callers, but all callers are test files.
+    # A symbol called only by tests is effectively internal test infrastructure;
+    # it may appear production-critical but is actually test-only — safe to refactor aggressively.
+    if scores:
+        _top574 = scores[0][1]
+        if not _is_test_file(_top574.file_path):
+            _callers574 = graph.callers_of(_top574.id)
+            if _callers574 and all(_is_test_file(s.file_path) for s in _callers574):
+                out.append(
+                    f"\ntest-dominated hotspot: {_top574.name} appears busy but all callers are test files"
+                    f" — internal test utility, not production-critical; safe to refactor aggressively"
+                )
+
     return out
 
