@@ -9391,3 +9391,84 @@ class TestBlastPeakExposure:
         assert "Peak exposure:" not in out, (
             f"'Peak exposure:' must not appear for fn with only 2 callers; got:\n{out}"
         )
+
+
+class TestOverviewMedianComplexity:
+    """S100: Overview 'median complexity:' — central tendency for fn complexity."""
+
+    def test_median_complexity_shown_for_sufficient_functions(self, tmp_path):
+        """10+ non-test functions → 'median complexity:' appears in overview."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # 12 functions: 10 simple (cx=1) + 2 complex (cx=20) → median=1, mean>1
+        for i in range(10):
+            (tmp_path / f"simple_{i}.py").write_text(f"def fn_{i}(): return {i}\n")
+        (tmp_path / "heavy.py").write_text(
+            "def big_a(x):\n"
+            + "".join(f"    if x == {i}: return {i}\n" for i in range(20))
+            + "    return 0\n"
+            "def big_b(x):\n"
+            + "".join(f"    if x == {i}: return {i}\n" for i in range(20))
+            + "    return 0\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "median complexity:" in out, (
+            f"Expected 'median complexity:' for 12 non-test fns; got:\n{out}"
+        )
+
+    def test_median_complexity_absent_for_few_functions(self, tmp_path):
+        """Fewer than 10 non-test functions → no 'median complexity:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        for i in range(5):
+            (tmp_path / f"fn_{i}.py").write_text(f"def work_{i}(): return {i}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "median complexity:" not in out, (
+            f"'median complexity:' must not appear for only 5 fns; got:\n{out}"
+        )
+
+
+class TestDeadCodeClusteredDead:
+    """S101: Dead code 'Clustered dead:' — files with 3+ dead symbols as batch targets."""
+
+    def test_clustered_dead_shown_for_file_with_many_dead_symbols(self, tmp_path):
+        """File with 4 uncalled functions → 'Clustered dead:' highlights it."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        # 4 dead functions in one file, nothing calls them
+        (tmp_path / "legacy.py").write_text(
+            "def old_a(): return 1\n"
+            "def old_b(): return 2\n"
+            "def old_c(): return 3\n"
+            "def old_d(): return 4\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "Clustered dead:" in out, (
+            f"Expected 'Clustered dead:' for file with 4 dead fns; got:\n{out}"
+        )
+        assert "legacy.py" in out, f"Expected 'legacy.py' in clustered dead; got:\n{out}"
+
+    def test_clustered_dead_absent_when_dead_scattered(self, tmp_path):
+        """2 dead symbols each in 2 separate files → no 'Clustered dead:'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        (tmp_path / "alpha.py").write_text(
+            "def unused_x(): return 1\n"
+            "def unused_y(): return 2\n"
+        )
+        (tmp_path / "beta.py").write_text(
+            "def unused_p(): return 3\n"
+            "def unused_q(): return 4\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "Clustered dead:" not in out, (
+            f"'Clustered dead:' must not appear when no file has 3+ dead symbols; got:\n{out}"
+        )
