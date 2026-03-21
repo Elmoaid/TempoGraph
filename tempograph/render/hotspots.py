@@ -1820,5 +1820,24 @@ def _collect_hotspots_signals(
                     f" — most-called symbol with no safety net; add tests before modifying"
                 )
 
+    # S562: Cross-package hotspot — top hotspot is called from 3+ distinct top-level directories.
+    # A symbol called across many packages is a hidden global dependency; its contracts
+    # affect every team/module that imports it; even small signature changes ripple broadly.
+    if scores:
+        _top562 = scores[0][1]
+        if not _is_test_file(_top562.file_path):
+            _callers562 = graph.callers_of(_top562.id)
+            _caller_syms562 = [graph.symbols.get(c) for c in _callers562]
+            _top_dirs562 = {
+                s.file_path.replace("\\", "/").split("/")[0]
+                for s in _caller_syms562
+                if s and not _is_test_file(s.file_path) and "/" in s.file_path.replace("\\", "/")
+            }
+            if len(_top_dirs562) >= 3:
+                out.append(
+                    f"\ncross-package hotspot: {_top562.name} called from {len(_top_dirs562)} different top-level packages"
+                    f" — hidden global dependency; signature changes cascade across all packages"
+                )
+
     return out
 

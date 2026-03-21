@@ -1559,6 +1559,24 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — bugs here abort startup; validate initialization order carefully"
         )
 
+    # S560: Test-only blast — all direct importers of the blast file are test files.
+    # Production code never imports this file; it exists solely to support tests
+    # or was production code that regressed to test-only usage — consider deleting.
+    _fp_norm560 = file_path.replace("\\", "/")
+    _all_importers560 = [
+        graph.symbols.get(e.source_id)
+        for e in graph.edges
+        if e.kind.value == "imports"
+        and graph.symbols.get(e.target_id) is not None
+        and graph.symbols[e.target_id].file_path.replace("\\", "/") == _fp_norm560
+    ]
+    _importers560 = [s for s in _all_importers560 if s is not None]
+    if _importers560 and all(_is_test_file(s.file_path) for s in _importers560):
+        lines.append(
+            f"test-only blast: {file_path.rsplit('/', 1)[-1]} is only imported by test files"
+            f" — production code never uses this; verify it's not dead production code"
+        )
+
     return "\n".join(lines)
 
 

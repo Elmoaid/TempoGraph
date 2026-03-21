@@ -3012,6 +3012,19 @@ def _signals_focused_fn_advanced(
                 f" or run via asyncio.run(); forgetting await silently returns a coroutine object"
             )
 
+    # S558: Deprecated name — focused symbol's name contains deprecation marker.
+    # Symbols named with deprecated/old/legacy/v1 signal intent to remove; callers
+    # importing such symbols are accruing technical debt and should migrate before removal.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim558 = _seed_syms[0]
+        _dep_markers558 = ("deprecated", "old_", "_old", "legacy", "_v1", "v1_", "obsolete")
+        _lname558 = _prim558.name.lower()
+        if any(m in _lname558 for m in _dep_markers558):
+            lines.append(
+                f"\ndeprecated name: {_prim558.name} contains a deprecation marker"
+                f" — callers are accruing technical debt; migrate to the replacement before removal"
+            )
+
     return lines
 
 
