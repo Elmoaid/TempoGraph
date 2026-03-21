@@ -371,6 +371,24 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             if _s122_pct < 80:
                 lines.append(f"downstream coverage: {_s122_tested}/{_s122_total} importers have tests ({_s122_pct}%)")
 
+    # S138: Aggregator file — blast target imports from many other modules.
+    # Files that pull from 5+ distinct source modules are barrel/aggregator files:
+    # changes to any upstream propagate here, AND any change here propagates to all importers.
+    # Highest blast-amplification pattern. Only shown when 5+ distinct imports found.
+    _s138_imports_from = sorted({
+        e.target_id for e in graph.edges
+        if e.kind == EdgeKind.IMPORTS
+        and e.source_id == file_path
+        and e.target_id in graph.files
+        and not _is_test_file(e.target_id)
+        and e.target_id != file_path
+    })
+    if len(_s138_imports_from) >= 5:
+        lines.append(
+            f"aggregator file: imports from {len(_s138_imports_from)} modules"
+            f" — barrel/hub; upstream changes flow through here"
+        )
+
     if not importers and not external_callers and not render_targets:
         lines.append("No external dependencies found — safe to modify in isolation.")
 
