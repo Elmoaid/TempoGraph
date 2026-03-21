@@ -509,6 +509,25 @@ def render_overview(graph: Tempo) -> str:
                 f"orphan tests ({len(_orphan_tests)}): {_ot_str} — no matching source file"
             )
 
+    # S115: Largest test file — the test file with the most test functions.
+    # Identifies the "main test suite" — agents should run it first after any change.
+    # Only shown when 2+ test files exist and the largest has 3+ test functions.
+    if len(_test_fps) >= 2:
+        _test_fn_counts: list[tuple[int, str]] = []
+        for _tfp in _test_fps:
+            _fi_t = graph.files.get(_tfp)
+            if not _fi_t:
+                continue
+            _n_tests = sum(
+                1 for sid in _fi_t.symbols
+                if sid in graph.symbols and graph.symbols[sid].name.startswith("test_")
+            )
+            if _n_tests >= 3:
+                _test_fn_counts.append((_n_tests, _tfp))
+        if _test_fn_counts:
+            _largest_t_n, _largest_t_fp = max(_test_fn_counts, key=lambda x: x[0])
+            lines.append(f"largest test file: {_largest_t_fp.rsplit('/', 1)[-1]} ({_largest_t_n} tests)")
+
     # API surface health: exported symbols with 0 cross-file callers = potentially dead API.
     # Quick fraction for agents: "35% of exports unused → dead code problem worth investigating."
     # Only shown when >= 5 exported non-test symbols exist (avoids noise on tiny repos).
@@ -2598,6 +2617,26 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
         lines.append(hot_section)
         token_count += count_tokens(hot_section)
 
+    # S116: Untested callers — callers of seed symbols in files with no test counterpart.
+    # These production callers have no safety net; modifying the seed risks silent breakage.
+    # Only shown when 3+ untested callers found AND test files exist in the project.
+    _all_proj_test_fps = {fp for fp in graph.files if _is_test_file(fp)}
+    if _all_proj_test_fps and _seed_syms:
+        _uc_files: set[str] = set()
+        for _us in _seed_syms:
+            for _uc in graph.callers_of(_us.id):
+                if _is_test_file(_uc.file_path) or _uc.file_path == _us.file_path:
+                    continue
+                _uc_base = _uc.file_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                if not any(_uc_base in t for t in _all_proj_test_fps):
+                    _uc_files.add(_uc.file_path)
+        if len(_uc_files) >= 3:
+            _uc_names = [fp.rsplit("/", 1)[-1] for fp in sorted(_uc_files)[:3]]
+            _uc_str = ", ".join(_uc_names)
+            if len(_uc_files) > 3:
+                _uc_str += f" +{len(_uc_files) - 3} more"
+            lines.append(f"\nuntested callers: {len(_uc_files)} caller files have no tests ({_uc_str})")
+
     # S103: Cross-file callees — distinct files the seed's direct callees live in.
     # A function pulling from many files = wide dependency scope = broad change risk.
     # Shown when seed calls into 3+ distinct external files.
@@ -2707,6 +2746,16 @@ def render_lookup(graph: Tempo, question: str) -> str:
                     callers = graph.callers_of(sym.id)
                     if callers:
                         lines.append(f"    called by: {', '.join(c.qualified_name for c in callers[:5])}")
+                    # S113: Rename risk — cross-file caller count tells agents how risky it is
+                    # to rename or change this symbol's signature. HIGH = widespread use across
+                    # many files; LOW = local use only. Only shown for functions/methods/classes.
+                    if callers and sym.kind.value in ("function", "method", "class", "interface"):
+                        _rn_files = len({c.file_path for c in callers if c.file_path != sym.file_path})
+                        _rn_count = len(callers)
+                        if _rn_files >= 3 or _rn_count >= 8:
+                            lines.append(f"    rename risk: HIGH ({_rn_count} callers, {_rn_files} files)")
+                        elif _rn_files >= 1 and _rn_count >= 2:
+                            lines.append(f"    rename risk: MEDIUM ({_rn_count} callers, {_rn_files} external files)")
                 return "\n".join(lines)
             else:
                 # Fuzzy search
