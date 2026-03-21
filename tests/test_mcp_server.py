@@ -6690,3 +6690,49 @@ class TestOverviewUntestedHot:
         assert "untested hot:" not in out, (
             f"'untested hot:' must not appear when function has test coverage; got:\n{out}"
         )
+
+
+class TestFocusCalleeDepth:
+    """S61: Focus mode — '[callee depth: N]' annotation on depth-0 seed with call chain >= 3.
+
+    Shows how far changes propagate through the call graph. Absent for shallow callers.
+    """
+
+    def _build(self, tmp_path, files: dict):
+        from tempograph.builder import build_graph
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_callee_depth_shown_for_deep_call_chain(self, tmp_path):
+        """'[callee depth: N]' appears when seed's call chain is >=3 levels deep."""
+        from tempograph.render import render_focused
+
+        # level0 -> level1 -> level2 -> level3 — depth 3
+        g = self._build(tmp_path, {
+            "chain.py": (
+                "def level3(): return 1\n"
+                "def level2(): return level3()\n"
+                "def level1(): return level2()\n"
+                "def level0(): return level1()\n"
+            ),
+        })
+        out = render_focused(g, "level0")
+        assert "callee depth:" in out, (
+            f"Expected '[callee depth: N]' for 3-deep call chain; got:\n{out}"
+        )
+
+    def test_callee_depth_absent_for_shallow_function(self, tmp_path):
+        """'[callee depth:]' absent when call chain is < 3 levels."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "flat.py": (
+                "def helper(): return 1\n"
+                "def caller(): return helper()\n"
+            ),
+        })
+        out = render_focused(g, "caller")
+        assert "callee depth:" not in out, (
+            f"'[callee depth:]' must not appear for 1-level chain; got:\n{out}"
+        )

@@ -1399,6 +1399,7 @@ def _build_symbol_block_lines(
     # Callee count annotation: if seed calls >= 5 distinct functions, show [calls: N].
     # High callee count signals broad side-effects — risky to change.
     _callee_ann = ""
+    _depth_ann = ""
     if depth == 0:
         _callee_ids = {
             e.target_id for e in graph.edges
@@ -1406,6 +1407,24 @@ def _build_symbol_block_lines(
         }
         if len(_callee_ids) >= 5:
             _callee_ann = f" [calls: {len(_callee_ids)}]"
+        # Callee depth: longest forward call chain from seed.
+        # Signals how far changes propagate — [callee depth: 4] means 4 levels of calls.
+        # BFS capped at 60 nodes / depth 8 to avoid O(N²) on large graphs.
+        _bfs_q: list[tuple[str, int]] = [(sym.id, 0)]
+        _bfs_seen: set[str] = {sym.id}
+        _max_callee_depth = 0
+        while _bfs_q and len(_bfs_seen) < 60:
+            _cur_id, _cur_lvl = _bfs_q.pop(0)
+            if _cur_lvl > _max_callee_depth:
+                _max_callee_depth = _cur_lvl
+            if _cur_lvl >= 8:
+                continue
+            for _e in graph.edges:
+                if _e.kind == EdgeKind.CALLS and _e.source_id == _cur_id and _e.target_id not in _bfs_seen:
+                    _bfs_seen.add(_e.target_id)
+                    _bfs_q.append((_e.target_id, _cur_lvl + 1))
+        if _max_callee_depth >= 3:
+            _depth_ann = f" [callee depth: {_max_callee_depth}]"
     elif depth >= 1:
         # Hub annotation: deeply-imported utilities used across 15+ files.
         # Tells agents this is a widely-shared symbol — don't expect to find
@@ -1416,7 +1435,7 @@ def _build_symbol_block_lines(
         }
         if len(_hub_caller_files) >= 15:
             _hub_ann = f" [hub: {len(_hub_caller_files)} files]"
-    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann}{_callee_ann} — {loc}{orbit_note}"]
+    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann}{_callee_ann}{_depth_ann} — {loc}{orbit_note}"]
     # Test coverage hint: show which test file(s) directly call this symbol.
     # If exported and no test callers → warn agents there's no safety net.
     # Only shown for functions/methods; skipped for classes/modules/constants.
