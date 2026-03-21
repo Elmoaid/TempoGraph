@@ -149,7 +149,8 @@ class GraphDB:
         self._conn.execute(
             "UPDATE files SET mtime_ns = ? WHERE path = ?", (mtime_ns, rel_path)
         )
-        self._conn.commit()
+        if not self._batching:
+            self._conn.commit()
 
     def file_hash_matches(self, rel_path: str, file_hash: str) -> bool:
         row = self._conn.execute(
@@ -214,7 +215,8 @@ class GraphDB:
                 [(e.kind.value, e.source_id, e.target_id, e.line) for e in file_edges],
             )
 
-        self._conn.commit()
+        if not self._batching:
+            self._conn.commit()
 
     def remove_stale_files(self, current_files: set[str]) -> int:
         """Remove files from DB that no longer exist on disk. Returns count removed."""
@@ -229,7 +231,8 @@ class GraphDB:
             self._conn.execute("DELETE FROM symbols WHERE file_path = ?", (path,))
             self._conn.execute("DELETE FROM edges WHERE source_id LIKE ?", (path + "::%",))
             self._conn.execute("DELETE FROM files WHERE path = ?", (path,))
-        self._conn.commit()
+        if not self._batching:
+            self._conn.commit()
         return len(stale)
 
     def load_all(self, *, lazy_edges: bool = False) -> tuple[dict[str, FileInfo], dict[str, Symbol], list[Edge]]:
@@ -347,7 +350,8 @@ class GraphDB:
             "INSERT INTO symbol_vectors (embedding, symbol_id) VALUES (?, ?)",
             (json.dumps(embedding), symbol_id),
         )
-        self._conn.commit()
+        if not self._batching:
+            self._conn.commit()
 
     def upsert_vectors_batch(self, items: list[tuple[str, list[float]]]) -> None:
         """Batch upsert symbol embeddings. items = [(symbol_id, embedding), ...]"""
@@ -362,7 +366,8 @@ class GraphDB:
             "INSERT INTO symbol_vectors (embedding, symbol_id) VALUES (?, ?)",
             [(json.dumps(emb), sid) for sid, emb in items],
         )
-        self._conn.commit()
+        if not self._batching:
+            self._conn.commit()
 
     def search_vectors(self, query_embedding: list[float], limit: int = 20) -> list[tuple[float, str]]:
         """Vector similarity search. Returns (distance, symbol_id) pairs."""
