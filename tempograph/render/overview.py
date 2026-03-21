@@ -3079,6 +3079,21 @@ def _signals_async_oop(
             f" consider adding CLI or worker entry points for resilience"
         )
 
+    # S805: Multi-language repo — codebase uses 3+ distinct programming languages.
+    # Repos with 3+ languages require contributors to context-switch across ecosystems;
+    # each language adds tooling, linting, and dependency management overhead.
+    _langs805 = set(
+        lang for fp, fi in graph.files.items()
+        if not _is_test_file(fp)
+        for lang in [fi.language.value]
+        if lang not in ("unknown", "text", "markdown", "json", "yaml", "toml", "html", "css")
+    )
+    if len(_langs805) >= 3:
+        lines.append(
+            f"multi-language repo: {len(_langs805)} programming languages detected ({', '.join(sorted(_langs805)[:4])})"
+            f" — cross-language codebase; ensure tooling covers all languages"
+        )
+
     return lines
 
 

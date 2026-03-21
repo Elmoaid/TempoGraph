@@ -38217,3 +38217,216 @@ class TestDeadExceptionClassesS803:
         assert "dead exception classes" not in out, (
             f"'dead exception classes' must not appear when exception is raised; got:\n{out}"
         )
+
+
+# ---------------------------------------------------------------------------
+# S804 – S809
+# ---------------------------------------------------------------------------
+
+# ── S804: Entry point focus ───────────────────────────────────────────────────
+
+class TestEntryPointFocusS804:
+    """S804: Focused symbol is a well-known entry point name emits entry-point-focus signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "main")
+        assert "entry point focus" in out, (
+            f"Expected 'entry point focus' for well-known entry point 'main'; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def process_data(x): return x\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import process_data\ndef run(): process_data(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process_data")
+        assert "entry point focus" not in out, (
+            f"'entry point focus' must not appear for non-entry-point function; got:\n{out}"
+        )
+
+
+# ── S805: Multi-language repo ─────────────────────────────────────────────────
+
+class TestMultiLanguageRepoS805:
+    """S805: Repo using 3+ distinct programming languages emits multi-language-repo signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "server.py").write_text("def serve(): pass\n")
+        (tmp_path / "client.js").write_text("function fetch() {}\n")
+        (tmp_path / "worker.go").write_text("package main\nfunc main() {}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "multi-language repo" in out, (
+            f"Expected 'multi-language repo' for Python+JS+Go repo; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "models.py").write_text("class User: pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "multi-language repo" not in out, (
+            f"'multi-language repo' must not appear for single-language repo; got:\n{out}"
+        )
+
+
+# ── S806: High fan-out blast ──────────────────────────────────────────────────
+
+class TestHighFanOutBlastS806:
+    """S806: Blast target calls 10+ symbols in other files emits high-fan-out-blast signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        # Create 12 callee modules each with one function
+        imports = []
+        for i in range(12):
+            (tmp_path / f"mod_{i}.py").write_text(f"def func_{i}(): pass\n")
+            imports.append(f"from mod_{i} import func_{i}")
+        calls = "\n".join(f"    func_{i}()" for i in range(12))
+        (tmp_path / "hub.py").write_text(
+            "\n".join(imports) + f"\ndef orchestrate():\n{calls}\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "hub.py")
+        assert "high fan-out blast" in out, (
+            f"Expected 'high fan-out blast' for file calling 12 external functions; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helper.py").write_text("def add(a, b): return a + b\n")
+        (tmp_path / "math_ops.py").write_text(
+            "from helper import add\ndef double(x): return add(x, x)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "math_ops.py")
+        assert "high fan-out blast" not in out, (
+            f"'high fan-out blast' must not appear for low fan-out file; got:\n{out}"
+        )
+
+
+# ── S807: Conftest.py in diff ─────────────────────────────────────────────────
+
+class TestConftestInDiffS807:
+    """S807: conftest.py in diff emits conftest-in-diff signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "conftest.py").write_text("import pytest\n@pytest.fixture\ndef client(): return object()\n")
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["conftest.py"])
+        assert "conftest.py in diff" in out, (
+            f"Expected 'conftest.py in diff' when conftest.py is changed; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text("from utils import helper\ndef main(): helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["utils.py"])
+        assert "conftest.py in diff" not in out, (
+            f"'conftest.py in diff' must not appear when conftest.py is not changed; got:\n{out}"
+        )
+
+
+# ── S808: Async hotspot ───────────────────────────────────────────────────────
+
+class TestAsyncHotspotS808:
+    """S808: Top hotspot is an async function emits async-hotspot signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "handler.py").write_text("async def handle_request(req): return req\n")
+        for i in range(6):
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from handler import handle_request\nasync def go_{i}(r): await handle_request(r)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "async hotspot" in out, (
+            f"Expected 'async hotspot' for async function as top hotspot; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "processor.py").write_text("def process(data): return data\n")
+        for i in range(6):
+            (tmp_path / f"user_{i}.py").write_text(
+                f"from processor import process\ndef run_{i}(): process({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "async hotspot" not in out, (
+            f"'async hotspot' must not appear for non-async top hotspot; got:\n{out}"
+        )
+
+
+# ── S809: Dead mixins ─────────────────────────────────────────────────────────
+
+class TestDeadMixinsS809:
+    """S809: Unused mixin classes emits dead-mixins signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "mixins.py").write_text(
+            "class SerializerMixin:\n    def to_dict(self): return {}\n"
+            "class LoggingMixin:\n    def log(self): pass\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead mixins" in out, (
+            f"Expected 'dead mixins' for unused Mixin classes; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "mixins.py").write_text(
+            "class TimestampMixin:\n    def now(self): return 0\n"
+        )
+        (tmp_path / "models.py").write_text(
+            "from mixins import TimestampMixin\nclass User(TimestampMixin): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from models import User\ndef run(): User()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead mixins" not in out, (
+            f"'dead mixins' must not appear when mixin is subclassed and used; got:\n{out}"
+        )

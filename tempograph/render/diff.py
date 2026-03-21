@@ -566,6 +566,17 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
                 f" — no production code modified; verify this is intentional"
             )
 
+    # S807: Conftest.py in diff — shared pytest fixture file changed.
+    # conftest.py defines fixtures used across many test files; changing it can silently
+    # break tests that depend on those fixtures, often in surprising or hard-to-trace ways.
+    if changed_files:
+        _conftest807 = [f for f in changed_files if f.replace("\\", "/").rsplit("/", 1)[-1] == "conftest.py"]
+        if _conftest807:
+            lines.append(
+                f"conftest.py in diff: shared pytest fixture file changed ({_conftest807[0].rsplit('/', 1)[-1]})"
+                f" — fixture changes affect all tests in scope; audit callers before merging"
+            )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
