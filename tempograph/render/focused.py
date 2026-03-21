@@ -2568,23 +2568,28 @@ def _signals_focused_fn_advanced(
                     f" silently breaks all callsites"
                 )
 
-    # S440: Overloaded function — focused symbol has multiple signatures (TypedDict/overload).
-    # Overloaded functions have different behavior per call signature; changing one
-    # dispatch path silently breaks callers relying on a different signature variant.
+    # S440: Callback-heavy function — focused function receives 3+ callback-named parameters.
+    # Functions with multiple callback arguments invert control flow; the function's behavior
+    # is entirely determined by what the caller passes in, making each callsite a different
+    # behavioral contract that must be checked independently.
     if _seed_syms and token_count < max_tokens - 30:
         _prim440 = next((s for s in _seed_syms if s.kind.value in ("function", "method")), None)
         if _prim440 and _prim440.signature:
-            _overload_callees440 = [
-                e for e in graph.edges
-                if e.kind.value == "calls" and e.source_id == _prim440.id
-                and e.target_id in graph.symbols
-                and graph.symbols[e.target_id].name in ("overload", "singledispatch")
+            _cb_keywords440 = ("callback", "handler", "on_", "fn_", "func_", "hook_", "listener_")
+            _params440 = [
+                p.strip().split(":")[0].strip().split("=")[0].strip()
+                for p in _prim440.signature.split("(", 1)[-1].rstrip("):").split(",")
             ]
-            _sig_has_overload440 = "overload" in (_prim440.signature or "").lower()
-            if _overload_callees440 or _sig_has_overload440:
+            _cb_params440 = [
+                p for p in _params440
+                if any(kw in p.lower() for kw in _cb_keywords440)
+            ]
+            if len(_cb_params440) >= 2:
+                _names440 = ", ".join(_cb_params440[:3])
                 lines.append(
-                    f"\noverloaded function: {_prim440.name} uses @overload or singledispatch"
-                    f" — each signature variant must be tested independently; changing dispatch breaks callers"
+                    f"\ncallback-heavy: {_prim440.name} receives {len(_cb_params440)} callback param(s)"
+                    f" ({_names440})"
+                    f" — behavior is caller-determined; each callsite is an independent contract"
                 )
 
     # S350: Orphaned symbol — focused symbol has 0 callers and the file is not imported anywhere.

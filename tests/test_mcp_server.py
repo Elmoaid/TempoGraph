@@ -22045,3 +22045,208 @@ class TestDeadMigrationsS438:
         assert "dead migrations" not in out, (
             f"'dead migrations' must not appear when migration fn is called; got:\n{out}"
         )
+
+
+
+
+class TestDeepInheritanceS439:
+    """S439: Deep inheritance hierarchy (4+ levels) emits the signal."""
+
+    def test_deep_inheritance_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "hierarchy.py").write_text(
+            "class A:\n    def method_a(self): pass\n\n"
+            "class B(A):\n    def method_b(self): pass\n\n"
+            "class C(B):\n    def method_c(self): pass\n\n"
+            "class D(C):\n    def method_d(self): pass\n\n"
+            "class E(D):\n    def method_e(self): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "deep inheritance" in out, (
+            f"Expected 'deep inheritance' signal for 4-level chain; got:\n{out}"
+        )
+
+    def test_deep_inheritance_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "simple.py").write_text(
+            "class Base:\n    def base_method(self): pass\n\n"
+            "class Child(Base):\n    def child_method(self): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "deep inheritance" not in out, (
+            f"'deep inheritance' must not appear for 2-level chain; got:\n{out}"
+        )
+
+
+class TestCallbackHeavyFunctionS440:
+    """S440: Function with 2+ callback-named params emits callback-heavy signal."""
+
+    def test_callback_heavy_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "events.py").write_text(
+            "def register_listener(event_type, on_success, on_error, handler_fn):\n"
+            "    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "register_listener")
+        assert "callback-heavy" in out, (
+            f"Expected 'callback-heavy' signal for fn with 3 callback params; got:\n{out}"
+        )
+
+    def test_callback_heavy_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def transform(value, multiplier):\n    return value * multiplier\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "transform")
+        assert "callback-heavy" not in out, (
+            f"'callback-heavy' must not appear for plain fn with non-callback params; got:\n{out}"
+        )
+
+
+class TestSerializationDiffS441:
+    """S441: Serialization file in diff emits signal."""
+
+    def test_serialization_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "serializer.py"])
+        assert "serialization change" in out, (
+            f"Expected 'serialization change' signal when serializer.py in diff; got:\n{out}"
+        )
+
+    def test_serialization_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "views.py"])
+        assert "serialization change" not in out, (
+            f"'serialization change' must not appear for views.py; got:\n{out}"
+        )
+
+
+class TestChurnDisparityHotspotS442:
+    """S442: Extreme churn disparity (top hotspot 3x second-place) emits signal."""
+
+    def test_churn_disparity_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        methods = "\n".join(
+            f"    def action_{i}(self):\n        pass" for i in range(15)
+        )
+        (tmp_path / "god_object.py").write_text(
+            f"class GodObject:\n{methods}\n"
+        )
+        for i in range(6):
+            (tmp_path / f"consumer_{i}.py").write_text(
+                f"from god_object import GodObject\n\ndef use_{i}(obj): obj.action_{i}()\n"
+            )
+        (tmp_path / "small.py").write_text("def tiny(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "churn disparity" in out, (
+            f"Expected 'churn disparity' signal; got:\n{out}"
+        )
+
+    def test_churn_disparity_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        for i in range(3):
+            (tmp_path / f"module_{i}.py").write_text(
+                f"def func_{i}(): pass\n"
+            )
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from module_{i} import func_{i}\ndef run(): func_{i}()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "churn disparity" not in out, (
+            f"'churn disparity' must not appear for balanced hotspot distribution; got:\n{out}"
+        )
+
+
+class TestPublicAPIBlastS443:
+    """S443: Public API file consumed by 5+ files emits signal in blast output."""
+
+    def test_public_api_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "api.py").write_text(
+            "def authenticate(token): pass\n"
+            "def authorize(user, resource): pass\n"
+        )
+        for i in range(6):
+            (tmp_path / f"service_{i}.py").write_text(
+                f"from api import authenticate\n\ndef service_{i}(t): authenticate(t)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "api.py")
+        assert "public API file" in out, (
+            f"Expected 'public API file' signal for api.py with 6 consumers; got:\n{out}"
+        )
+
+    def test_public_api_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helper.py").write_text("def util(): pass\n")
+        (tmp_path / "main.py").write_text("from helper import util\ndef run(): util()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "helper.py")
+        assert "public API file" not in out, (
+            f"'public API file' must not appear with only 1 consumer; got:\n{out}"
+        )
+
+
+class TestDeadCLICommandsS444:
+    """S444: Unused main_*/cmd_* functions emit the dead CLI commands signal."""
+
+    def test_dead_cli_commands_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "commands.py").write_text(
+            "def main_export():\n    pass\n\n"
+            "def cmd_import():\n    pass\n\n"
+            "def cli_status():\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead CLI commands" in out, (
+            f"Expected 'dead CLI commands' signal for unused cmd fns; got:\n{out}"
+        )
+
+    def test_dead_cli_commands_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "commands.py").write_text(
+            "def main_export():\n    pass\n"
+        )
+        (tmp_path / "runner.py").write_text(
+            "from commands import main_export\n\ndef run():\n    main_export()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead CLI commands" not in out, (
+            f"'dead CLI commands' must not appear when cmd fn is called; got:\n{out}"
+        )
