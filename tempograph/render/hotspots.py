@@ -1826,12 +1826,11 @@ def _collect_hotspots_signals(
     if scores:
         _top562 = scores[0][1]
         if not _is_test_file(_top562.file_path):
-            _callers562 = graph.callers_of(_top562.id)
-            _caller_syms562 = [graph.symbols.get(c) for c in _callers562]
+            _callers562 = graph.callers_of(_top562.id)  # list[Symbol]
             _top_dirs562 = {
                 s.file_path.replace("\\", "/").split("/")[0]
-                for s in _caller_syms562
-                if s and not _is_test_file(s.file_path) and "/" in s.file_path.replace("\\", "/")
+                for s in _callers562
+                if not _is_test_file(s.file_path) and "/" in s.file_path.replace("\\", "/")
             }
             if len(_top_dirs562) >= 3:
                 out.append(

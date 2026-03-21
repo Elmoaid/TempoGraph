@@ -26831,3 +26831,368 @@ class TestSingleEntryPointOverviewS559:
         assert "single entry point" not in out, (
             f"'single entry point' must not appear when multiple entry points exist; got:\n{out}"
         )
+
+
+# ── S558: Deprecated name focused ─────────────────────────────────────────────
+
+class TestDeprecatedNameFocusedS558:
+    """S558: Symbol name contains deprecated/legacy/old marker emits deprecated name signal."""
+
+    def test_deprecated_name_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "api.py").write_text(
+            "def get_user_legacy(user_id: int):\n"
+            "    return user_id\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, query="get_user_legacy")
+        assert "deprecated name" in out, (
+            f"Expected 'deprecated name' for _legacy suffix; got:\n{out}"
+        )
+
+    def test_deprecated_name_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "api.py").write_text(
+            "def get_user(user_id: int):\n"
+            "    return user_id\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, query="get_user")
+        assert "deprecated name" not in out, (
+            f"'deprecated name' must not appear for clean function name; got:\n{out}"
+        )
+
+
+# ── S559: Single entry point overview ─────────────────────────────────────────
+
+class TestSingleEntryPointOverviewS559:
+    """S559: Exactly 1 entry point file emits single entry point signal."""
+
+    def test_single_entry_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "config.py").write_text("HOST = 'localhost'\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single entry point" in out, (
+            f"Expected 'single entry point' for only main.py; got:\n{out}"
+        )
+
+    def test_single_entry_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # Two entry points → not "single"
+        (tmp_path / "main.py").write_text("def main(): pass\n")
+        (tmp_path / "cli.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single entry point" not in out, (
+            f"'single entry point' must not appear for 2 entry points; got:\n{out}"
+        )
+
+
+# ── S560: Test-only blast ─────────────────────────────────────────────────────
+
+class TestTestOnlyBlastS560:
+    """S560: All importers of blast file are test files emits test-only blast signal."""
+
+    def test_test_only_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helpers.py").write_text("def helper(): return 1\n")
+        (tmp_path / "test_helpers.py").write_text(
+            "from helpers import helper\ndef test_helper(): assert helper() == 1\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, file_path="helpers.py")
+        assert "test-only blast" in out, (
+            f"Expected 'test-only blast' when helpers.py only imported by test; got:\n{out}"
+        )
+
+    def test_test_only_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "helpers.py").write_text("def helper(): return 1\n")
+        (tmp_path / "app.py").write_text(
+            "from helpers import helper\ndef run(): return helper()\n"
+        )
+        (tmp_path / "test_helpers.py").write_text(
+            "from helpers import helper\ndef test_helper(): assert helper() == 1\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, file_path="helpers.py")
+        assert "test-only blast" not in out, (
+            f"'test-only blast' must not appear when production code also imports; got:\n{out}"
+        )
+
+
+# ── S561: Config-only diff ────────────────────────────────────────────────────
+
+class TestConfigOnlyDiffS561:
+    """S561: All changed files are config files emits config-only diff signal."""
+
+    def test_config_only_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["settings.yaml", "config.toml"])
+        assert "config-only diff" in out, (
+            f"Expected 'config-only diff' for yaml+toml only; got:\n{out}"
+        )
+
+    def test_config_only_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "settings.yaml"])
+        assert "config-only diff" not in out, (
+            f"'config-only diff' must not appear when source files are also changed; got:\n{out}"
+        )
+
+
+# ── S562: Cross-package hotspot ───────────────────────────────────────────────
+
+class TestCrossPackageHotspotS562:
+    """S562: Top hotspot called from 3+ top-level packages emits cross-package hotspot signal."""
+
+    def test_cross_package_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # core/utils.py is imported by pkg_a, pkg_b, pkg_c
+        for pkg in ("pkg_a", "pkg_b", "pkg_c"):
+            d = tmp_path / pkg
+            d.mkdir()
+            (d / f"mod_{pkg}.py").write_text(
+                f"from core.utils import shared\ndef use_{pkg}(): return shared()\n"
+            )
+        core = tmp_path / "core"
+        core.mkdir()
+        (core / "utils.py").write_text("def shared(): return 1\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "cross-package hotspot" in out, (
+            f"Expected 'cross-package hotspot' for shared called from 3 pkgs; got:\n{out}"
+        )
+
+    def test_cross_package_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # All callers in the same package
+        pkg = tmp_path / "myapp"
+        pkg.mkdir()
+        (pkg / "utils.py").write_text("def shared(): return 1\n")
+        callers = "".join(
+            f"from myapp.utils import shared\ndef fn_{i}(): return shared()\n"
+            for i in range(5)
+        )
+        (pkg / "consumers.py").write_text(callers)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "cross-package hotspot" not in out, (
+            f"'cross-package hotspot' must not appear for single-package callers; got:\n{out}"
+        )
+
+
+# ── S563: Dead validator dead ──────────────────────────────────────────────────
+
+class TestDeadValidatorS563:
+    """S563: 2+ unused validate_/check_ functions emits dead validators signal."""
+
+    def test_dead_validators_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "validators.py").write_text(
+            "def validate_email(email): return '@' in email\n"
+            "def check_phone(phone): return len(phone) >= 10\n"
+            "def verify_age(age): return age >= 18\n"
+        )
+        (tmp_path / "main.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead validators" in out, (
+            f"Expected 'dead validators' for unused validate_/check_/verify_ functions; got:\n{out}"
+        )
+
+    def test_dead_validators_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "validators.py").write_text(
+            "def validate_email(email): return '@' in email\n"
+            "def check_phone(phone): return len(phone) >= 10\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from validators import validate_email, check_phone\n"
+            "def register(e, p): return validate_email(e) and check_phone(p)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead validators" not in out, (
+            f"'dead validators' must not appear when validators are imported; got:\n{out}"
+        )
+
+
+# ── S560: Test-only blast ──────────────────────────────────────────────────────
+
+class TestTestOnlyBlastS560:
+    """S560: Blast target only imported by test files emits test-only blast signal."""
+
+    def test_test_only_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "fixtures.py").write_text(
+            "def make_user(): return {'name': 'test'}\n"
+        )
+        (tmp_path / "test_core.py").write_text(
+            "from fixtures import make_user\ndef test_user(): assert make_user()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, file_path="fixtures.py")
+        assert "test-only blast" in out, (
+            f"Expected 'test-only blast' when file only imported by tests; got:\n{out}"
+        )
+
+    def test_test_only_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper(): return 42\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): return helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, file_path="utils.py")
+        assert "test-only blast" not in out, (
+            f"'test-only blast' must not appear when file also imported by source; got:\n{out}"
+        )
+
+
+# ── S561: Config-only diff ─────────────────────────────────────────────────────
+
+class TestConfigOnlyDiffS561:
+    """S561: Diff with only config file extensions emits config-only diff signal."""
+
+    def test_config_only_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Diff only .yaml and .toml files — pure config
+        out = render_diff_context(g, ["docker-compose.yaml", "pyproject.toml"])
+        assert "config-only diff" in out, (
+            f"Expected 'config-only diff' for diff with only .yaml/.toml files; got:\n{out}"
+        )
+
+    def test_config_only_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Mix of source and config
+        out = render_diff_context(g, ["app.py", "config.yaml"])
+        assert "configuration files" not in out, (
+            f"'config-only diff' (configuration files) must not appear when source also changed; got:\n{out}"
+        )
+
+
+# ── S562: Cross-package hotspot ───────────────────────────────────────────────
+
+class TestCrossPackageHotspotS562:
+    """S562: Top hotspot called from 3+ top-level packages emits cross-package hotspot signal."""
+
+    def test_cross_package_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # Create shared utility called from 3 different top-level packages
+        core = tmp_path / "core"
+        core.mkdir()
+        (core / "utils.py").write_text("def fmt(x): return str(x)\n")
+
+        for pkg in ("alpha", "beta", "gamma"):
+            pkg_dir = tmp_path / pkg
+            pkg_dir.mkdir()
+            (pkg_dir / "service.py").write_text(
+                f"from core.utils import fmt\ndef {pkg}_fn(x): return fmt(x)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "cross-package hotspot" in out, (
+            f"Expected 'cross-package hotspot' for fn called from 3 packages; got:\n{out}"
+        )
+
+    def test_cross_package_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # Utility called only from one package
+        (tmp_path / "utils.py").write_text("def fmt(x): return str(x)\n")
+        for i in range(5):
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from utils import fmt\ndef fn_{i}(): return fmt({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "cross-package hotspot" not in out, (
+            f"'cross-package hotspot' must not appear when all callers in root; got:\n{out}"
+        )
+
+
+# ── S563: Dead validators dead ─────────────────────────────────────────────────
+
+class TestDeadValidatorsS563:
+    """S563: Unused validate_/check_/verify_ functions emits dead validators signal."""
+
+    def test_dead_validators_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "guards.py").write_text(
+            "def validate_email(email): return '@' in email\n"
+            "def validate_phone(phone): return len(phone) == 10\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead validators" in out, (
+            f"Expected 'dead validators' for unused validate_ functions; got:\n{out}"
+        )
+
+    def test_dead_validators_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "guards.py").write_text(
+            "def validate_email(email): return '@' in email\n"
+        )
+        (tmp_path / "handler.py").write_text(
+            "from guards import validate_email\n"
+            "def submit(email):\n"
+            "    if validate_email(email): return True\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "abandoned input guards" not in out, (
+            f"S563 'abandoned input guards' suffix must not appear when validator has callers; got:\n{out}"
+        )
