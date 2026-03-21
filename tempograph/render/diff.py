@@ -1157,4 +1157,25 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — config changes often untested; verify expected keys and value types in all environments"
         )
 
+    # S387: Breaking change risk — diff touches public API definition files.
+    # Public API files (routes, endpoints, openapi specs) define contracts with callers;
+    # changes here may break existing clients silently if not versioned properly.
+    _s387_api_patterns = (
+        "routes", "endpoints", "api", "openapi", "swagger", "v1", "v2", "v3",
+        "public_api", "rest_api", "graphql",
+    )
+    _s387_api_files = [
+        f for f in changed_files
+        if any(p in f.lower().replace("-", "_").replace("/", "_") for p in _s387_api_patterns)
+        and not _is_test_file(f)
+        and (f.endswith(".py") or f.endswith(".ts") or f.endswith(".js")
+             or f.endswith(".yaml") or f.endswith(".json"))
+    ]
+    if _s387_api_files:
+        _api_names387 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s387_api_files[:2])
+        lines.append(
+            f"API change: {_api_names387} in diff"
+            f" — public API contract may change; ensure clients are notified or version the endpoint"
+        )
+
     return "\n".join(lines)

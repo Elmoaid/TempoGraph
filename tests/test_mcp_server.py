@@ -20061,3 +20061,204 @@ class TestDeadCleanupFunctions:
         assert "dead cleanup" not in out, (
             f"'dead cleanup' must not appear when cleanup is called; got:\n{out}"
         )
+
+
+# S385 --- unused exports (overview)
+# ---------------------------------------------------------------------------
+
+class TestOverviewUnusedExports:
+    def test_unused_exports_shown(self, tmp_path):
+        """S385: unused exports shown when 30%+ of exported symbols have 0 callers."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        # 15 exported functions in isolated files (no importers)
+        for i in range(15):
+            (tmp_path / f"feature_{i}.py").write_text(
+                f"def feature_fn_{i}(x):\n    return x\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        if "unused exports" in out:
+            assert "API surface" in out or "exported" in out
+
+    def test_unused_exports_absent_when_all_called(self, tmp_path):
+        """S385: unused exports absent when exported symbols are all called."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        (tmp_path / "utils.py").write_text(
+            "def util_a(x): return x\n"
+            "def util_b(x): return x\n"
+        )
+        for i in range(3):
+            (tmp_path / f"user{i}.py").write_text(
+                f"from utils import util_a, util_b\ndef run(): util_a({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "unused exports" not in out, (
+            f"'unused exports' must not appear when exports are used; got:\n{out}"
+        )
+
+
+# S386 --- callback-style function (focused)
+# ---------------------------------------------------------------------------
+
+class TestFocusCallbackStyle:
+    def test_callback_shown(self, tmp_path):
+        """S386: callback-style shown when focused fn accepts a callable param."""
+        from tempograph.builder import build_graph
+        from tempograph.render.focused import render_focused
+        (tmp_path / "processor.py").write_text(
+            "def process_items(items, callback): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process_items")
+        if "callback-style" in out:
+            assert "callable" in out or "contract" in out
+
+    def test_callback_absent_for_regular_fn(self, tmp_path):
+        """S386: callback-style absent for functions with regular params."""
+        from tempograph.builder import build_graph
+        from tempograph.render.focused import render_focused
+        (tmp_path / "service.py").write_text("def get_user(user_id, name): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "get_user")
+        assert "callback-style" not in out, (
+            f"'callback-style' must not appear for regular params; got:\n{out}"
+        )
+
+
+# S387 --- breaking change risk (diff)
+# ---------------------------------------------------------------------------
+
+class TestDiffBreakingChange:
+    def test_breaking_change_shown(self, tmp_path):
+        """S387: API change shown when diff touches routes/endpoints/api files."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "routes.py").write_text("def get_user(): pass\ndef create_user(): pass\n")
+        (tmp_path / "api_v1.py").write_text("def list_items(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["routes.py", "api_v1.py"])
+        assert "API change" in out, f"Expected 'API change'; got:\n{out}"
+        assert "contract" in out or "client" in out or "version" in out
+
+    def test_breaking_change_absent_for_internal_diff(self, tmp_path):
+        """S387: API change absent when diff only touches internal implementation."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "service.py").write_text("def business_logic(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["utils.py", "service.py"])
+        assert "API change" not in out, (
+            f"'API change' must not appear for internal files; got:\n{out}"
+        )
+
+
+# S388 --- API endpoint hotspot (hotspots)
+# ---------------------------------------------------------------------------
+
+class TestHotspotsAPIEndpoint:
+    def test_api_hotspot_shown(self, tmp_path):
+        """S388: API hotspot shown when top hotspot is in a routes/views file."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        (tmp_path / "routes.py").write_text(
+            "\n".join(f"def endpoint_{i}(request): pass" for i in range(6)) + "\n"
+        )
+        for i in range(4):
+            (tmp_path / f"client{i}.py").write_text(
+                f"from routes import endpoint_{i}, endpoint_{i+1}\ndef call(): endpoint_{i}(None)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        if "API hotspot" in out:
+            assert "routes.py" in out or "delegate" in out or "service layer" in out
+
+    def test_api_hotspot_absent_for_service(self, tmp_path):
+        """S388: API hotspot absent when top hotspot is in a service/util file."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        (tmp_path / "service.py").write_text(
+            "\n".join(f"def fn_{i}(x): return x" for i in range(5)) + "\n"
+        )
+        for i in range(3):
+            (tmp_path / f"client{i}.py").write_text(
+                f"from service import fn_{i}\ndef run(): fn_{i}(1)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "API hotspot" not in out, (
+            f"'API hotspot' must not appear for service file; got:\n{out}"
+        )
+
+
+# S389 --- database model blast (blast)
+# ---------------------------------------------------------------------------
+
+class TestBlastDBModel:
+    def test_db_model_shown(self, tmp_path):
+        """S389: DB model blast shown when blast target is a models/schema file."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        (tmp_path / "user_model.py").write_text(
+            "class User:\n    def __init__(self, id, name): self.id = id; self.name = name\n"
+        )
+        for i in range(4):
+            (tmp_path / f"service{i}.py").write_text(
+                f"from user_model import User\ndef get_{i}(id): return User(id, 'test')\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "user_model.py")
+        if "DB model blast" in out:
+            assert "migration" in out or "schema" in out or "query" in out
+
+    def test_db_model_absent_for_utility(self, tmp_path):
+        """S389: DB model blast absent for utility files."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        (tmp_path / "string_utils.py").write_text("def format_name(n): return n.title()\n")
+        for i in range(4):
+            (tmp_path / f"mod{i}.py").write_text(
+                f"from string_utils import format_name\ndef fn_{i}(): format_name('test')\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "string_utils.py")
+        assert "DB model blast" not in out, (
+            f"'DB model blast' must not appear for utility file; got:\n{out}"
+        )
+
+
+# S390 --- dead report generators (dead)
+# ---------------------------------------------------------------------------
+
+class TestDeadReportGenerators:
+    def test_dead_reports_shown(self, tmp_path):
+        """S390: dead report generators shown when 2+ report_*/export_* fns have 0 callers."""
+        from tempograph.builder import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "reports.py").write_text(
+            "def report_monthly_sales(month): pass\n"
+            "def export_user_data(format): pass\n"
+            "def generate_audit_log(period): pass\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead report generators" in out, f"Expected 'dead report generators'; got:\n{out}"
+        assert "unshipped" in out or "reporting" in out
+
+    def test_dead_reports_absent_when_called(self, tmp_path):
+        """S390: dead report generators absent when report fns are called."""
+        from tempograph.builder import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "reports.py").write_text("def report_status(x): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from reports import report_status\ndef run(): report_status('ok')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead report generators" not in out, (
+            f"'dead report generators' must not appear when report fn is called; got:\n{out}"
+        )

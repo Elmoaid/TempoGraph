@@ -325,6 +325,40 @@ class GraphDB:
 
         return files, symbols, edges
 
+    def save_indexes(self, indexes: dict[str, dict[str, list[str]]], edge_count: int) -> None:
+        """Persist pre-built indexes as a pickle blob in the meta table.
+
+        Stored alongside the edge_count so build_indexes() can validate freshness.
+        """
+        import pickle
+        blob = pickle.dumps((edge_count, indexes), protocol=5)
+        self._conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('indexes_blob', ?)",
+            (sqlite3.Binary(blob),),
+        )
+        if not self._batching:
+            self._conn.commit()
+
+    def load_indexes(self, edge_count: int) -> dict[str, dict[str, list[str]]] | None:
+        """Load cached indexes if the edge count matches (i.e. edges haven't changed).
+
+        Returns the indexes dict or None if cache is stale/missing.
+        """
+        import pickle
+        try:
+            row = self._conn.execute(
+                "SELECT value FROM meta WHERE key = 'indexes_blob'"
+            ).fetchone()
+            if row is None:
+                return None
+            blob = row["value"] if isinstance(row, sqlite3.Row) else row[0]
+            cached_count, indexes = pickle.loads(blob)
+            if cached_count != edge_count:
+                return None
+            return indexes
+        except Exception:
+            return None
+
     def search_fts(self, query: str, limit: int = 20) -> list[tuple[float, str]]:
         """Full-text search over symbols. Returns (rank, symbol_id) pairs."""
         try:
