@@ -49,6 +49,16 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — split into focused PRs per module to reduce review complexity"
         )
 
+    # S561: Config-only diff — all changed files have config/data file extensions.
+    # Moved before early return so it fires even when config files aren't indexed as source.
+    _config_exts561 = (".yaml", ".yml", ".json", ".toml", ".ini", ".env", ".cfg", ".conf")
+    _cfg_files561 = [f for f in changed_files if any(f.lower().endswith(e) for e in _config_exts561)]
+    if changed_files and len(_cfg_files561) == len(changed_files):
+        lines.append(
+            f"config-only diff: all {len(changed_files)} changed file(s) are configuration files"
+            f" — no code changes, but config errors can change behavior, timeouts, or security policies"
+        )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
