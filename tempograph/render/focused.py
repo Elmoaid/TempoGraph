@@ -1974,6 +1974,29 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                     f" — changes must preserve loop invariants and base cases"
                 )
 
+    # S228: Class symbol focused — the focused symbol is a class; show subclass count.
+    # Classes with subclasses have contracts that affect all inheritors; changes propagate down.
+    # Only shown when seed is a class with >= 1 subclass in the graph.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim228 = _seed_syms[0]
+        if _prim228.kind.value == "class":
+            from ..types import EdgeKind as _EK228
+            _subclasses228 = [
+                graph.symbols[e.source_id]
+                for e in graph.edges
+                if e.kind.value == "inherits" and e.target_id == _prim228.id
+                and e.source_id in graph.symbols
+            ]
+            if _subclasses228:
+                _sub_names228 = [s.name for s in _subclasses228[:3]]
+                _sub_str228 = ", ".join(_sub_names228)
+                if len(_subclasses228) > 3:
+                    _sub_str228 += f" +{len(_subclasses228) - 3} more"
+                lines.append(
+                    f"\nclass with subclasses: {len(_subclasses228)} subclass(es) ({_sub_str228})"
+                    f" — interface changes break all inheritors"
+                )
+
     return "\n".join(lines)
 
 

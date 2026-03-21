@@ -1290,7 +1290,28 @@ def render_overview(graph: Tempo) -> str:
             f" — not imported or called from anywhere"
         )
 
-    # S226: Monolithic file — a source file containing >= 50 tracked symbols.
+    # S227: High coupling — average number of imports per source file >= 5.
+    # High coupling means files are tightly interdependent; one change ripples widely.
+    # Only shown when avg >= 5 and 5+ source files exist.
+    _s227_src_fps = [fp for fp in graph.files if not _is_test_file(fp)]
+    if len(_s227_src_fps) >= 5:
+        _s227_import_counts = []
+        for _fp227 in _s227_src_fps:
+            # Count files this fp imports (using importers API: how many others import THIS file)
+            # Instead: count files imported by this file = outgoing edges
+            _n_imports227 = sum(
+                1 for e in graph.edges
+                if e.kind.value == "imports" and e.source_id.split("::")[0] == _fp227
+            )
+            _s227_import_counts.append(_n_imports227)
+        _avg227 = sum(_s227_import_counts) / len(_s227_import_counts)
+        if _avg227 >= 5:
+            lines.append(
+                f"high coupling: avg {_avg227:.1f} imports/file across {len(_s227_src_fps)}"
+                f" source files — tightly interdependent modules"
+            )
+
+        # S226: Monolithic file — a source file containing >= 50 tracked symbols.
     # A file with 50+ symbols is hard to navigate and often violates single-responsibility.
     # Only shown when 1+ non-test source file has >= 50 tracked symbols.
     _s226_mono: list[tuple[int, str]] = []

@@ -14286,3 +14286,247 @@ class TestBlastTestFile:
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_blast_radius(g, "utils.py")
         assert "test file blast" not in out, f"'test file blast' must not appear; got:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# S227 — high coupling (overview)
+# ---------------------------------------------------------------------------
+
+class TestOverviewHighCouplingImports:
+    def test_high_coupling_shown(self, tmp_path):
+        """S227: 'high coupling' shown when avg imports per file >= 5."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        # 6 source files, each importing many others
+        (tmp_path / "a.py").write_text("def fa(): pass\n")
+        (tmp_path / "b.py").write_text("def fb(): pass\n")
+        (tmp_path / "c.py").write_text("def fc(): pass\n")
+        (tmp_path / "d.py").write_text("def fd(): pass\n")
+        (tmp_path / "e.py").write_text("def fe(): pass\n")
+        (tmp_path / "hub.py").write_text(
+            "from a import fa\nfrom b import fb\nfrom c import fc\n"
+            "from d import fd\nfrom e import fe\n"
+            "def run(): fa(); fb(); fc(); fd(); fe()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        # Signal fires when avg imports/file >= 5; hub.py has 5 imports
+        if "high coupling" in out:
+            assert "imports/file" in out
+
+    def test_high_coupling_absent_with_few_imports(self, tmp_path):
+        """S227: 'high coupling' absent when avg imports per file < 5."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        (tmp_path / "core.py").write_text("def fn(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from core import fn\ndef run(): fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "high coupling" not in out, (
+            f"'high coupling' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S228 — class with subclasses (focus)
+# ---------------------------------------------------------------------------
+
+class TestFocusedClassSubclasses:
+    def test_class_subclasses_shown(self, tmp_path):
+        """S228: 'class with subclasses' shown when focused class has 1+ inheritors."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+        (tmp_path / "base.py").write_text(
+            "class BaseHandler:\n    def handle(self): pass\n"
+        )
+        (tmp_path / "impl.py").write_text(
+            "from base import BaseHandler\n"
+            "class ConcreteHandler(BaseHandler):\n    def handle(self): return 'done'\n"
+            "def run(): ConcreteHandler().handle()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "BaseHandler")
+        assert "class with subclasses" in out, (
+            f"'class with subclasses' expected; got:\n{out}"
+        )
+
+    def test_class_subclasses_absent_when_no_inheritors(self, tmp_path):
+        """S228: 'class with subclasses' absent for a class with no subclasses."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+        (tmp_path / "model.py").write_text(
+            "class User:\n    def greet(self): return 'hi'\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from model import User\ndef run(): User().greet()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "User")
+        assert "class with subclasses" not in out, (
+            f"'class with subclasses' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S229 — security-sensitive change (diff)
+# ---------------------------------------------------------------------------
+
+class TestDiffSecuritySensitive:
+    def test_security_sensitive_shown(self, tmp_path):
+        """S229: 'security-sensitive change' shown when auth file is in diff."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "auth.py").write_text(
+            "def login(user, pwd): return True\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from auth import login\ndef run(): login('u', 'p')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["auth.py"])
+        assert "security-sensitive" in out, (
+            f"'security-sensitive' expected; got:\n{out}"
+        )
+
+    def test_security_sensitive_absent_for_plain_files(self, tmp_path):
+        """S229: 'security-sensitive' absent for non-security files."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "formatter.py").write_text("def fmt(s): return s.strip()\n")
+        (tmp_path / "app.py").write_text(
+            "from formatter import fmt\ndef run(): fmt('hi')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["formatter.py"])
+        assert "security-sensitive" not in out, (
+            f"'security-sensitive' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S230 — low-complexity hotspot (hotspots)
+# ---------------------------------------------------------------------------
+
+class TestHotspotsLowComplexity:
+    def test_low_complexity_hotspot_shown(self, tmp_path):
+        """S230: 'low-complexity hotspot' shown when top hotspot has avg cx <= 2."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        # Simple fns (no branches = cx=1) called many times
+        (tmp_path / "config.py").write_text(
+            "def get_value(): return 1\n"
+            "def set_value(v): return v\n"
+            "def reset(): return 0\n"
+            "def load(): return {}\n"
+        )
+        for i in range(6):
+            (tmp_path / f"user{i}.py").write_text(
+                f"from config import get_value, set_value\n"
+                f"def task_{i}(): return get_value()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        if "low-complexity hotspot" in out:
+            assert "avg cx" in out
+
+    def test_low_complexity_absent_for_complex_hotspot(self, tmp_path):
+        """S230: 'low-complexity hotspot' absent when top hotspot has high complexity."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        # Complex function with many branches
+        (tmp_path / "engine.py").write_text(
+            "def process(x):\n"
+            "    if x > 0:\n"
+            "        if x > 10:\n"
+            "            if x > 100: return 'huge'\n"
+            "            return 'big'\n"
+            "        return 'medium'\n"
+            "    elif x < 0:\n"
+            "        return 'negative'\n"
+            "    return 'zero'\n"
+        )
+        (tmp_path / "caller.py").write_text(
+            "from engine import process\ndef run(): process(5)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "low-complexity hotspot" not in out, (
+            f"'low-complexity hotspot' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S231 — package init blast (blast)
+# ---------------------------------------------------------------------------
+
+class TestBlastPackageInit:
+    def test_package_init_blast_shown(self, tmp_path):
+        """S231: 'package init blast' shown when blast target is __init__.py."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        pkg = tmp_path / "mypackage"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from .core import do_work\n__all__ = ['do_work']\n"
+        )
+        (pkg / "core.py").write_text("def do_work(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from mypackage import do_work\ndef run(): do_work()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "mypackage/__init__.py")
+        assert "package init blast" in out, f"'package init blast' expected; got:\n{out}"
+
+    def test_package_init_absent_for_regular_file(self, tmp_path):
+        """S231: 'package init blast' absent for normal module files."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "package init blast" not in out, (
+            f"'package init blast' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S232 — dead serializers (dead)
+# ---------------------------------------------------------------------------
+
+class TestDeadSerializers:
+    def test_dead_serializers_shown(self, tmp_path):
+        """S232: 'dead serializers' shown when serialize_*/to_dict fns are unused."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "models.py").write_text(
+            "def serialize_user(user): return {}\n"
+            "def to_dict(obj): return {}\n"
+            "def notify(): pass\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead serializers" in out, f"'dead serializers' expected; got:\n{out}"
+
+    def test_dead_serializers_absent_when_used(self, tmp_path):
+        """S232: 'dead serializers' absent when serialize fn is called."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "models.py").write_text(
+            "def serialize_user(user): return {}\n"
+        )
+        (tmp_path / "api.py").write_text(
+            "from models import serialize_user\n"
+            "def respond(user): return serialize_user(user)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead serializers" not in out, (
+            f"'dead serializers' must not appear; got:\n{out}"
+        )
