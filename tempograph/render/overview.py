@@ -2737,6 +2737,43 @@ def _signals_async_oop(
                 f" — many disconnected files; verify none are abandoned dead modules"
             )
 
+    # S685: Class-heavy repo — more than 60% of non-test exported symbols are classes.
+    # A repo where classes greatly outnumber functions often has anemic domain models
+    # with shallow behaviour; heavy OOP can obscure data flow and reduce testability.
+    _all_src685 = [
+        s for s in graph.symbols.values()
+        if s.parent_id is None and not _is_test_file(s.file_path)
+        and s.kind.value not in ("unknown", "module")
+    ]
+    if len(_all_src685) >= 5:
+        _class_count685 = sum(1 for s in _all_src685 if s.kind.value == "class")
+        if _class_count685 / len(_all_src685) > 0.60:
+            _cpct685 = int(_class_count685 / len(_all_src685) * 100)
+            lines.append(
+                f"class-heavy repo: {_cpct685}% of symbols are classes ({_class_count685}/{len(_all_src685)})"
+                f" — OOP-heavy; verify classes have behaviour, not just data"
+            )
+
+    # S691: Global variable density — top-level variables/constants are >20% of all symbols.
+    # High global state density increases coupling between modules and makes testing harder;
+    # constants are acceptable but mutable globals are a refactoring risk.
+    _all_top691 = [
+        s for s in graph.symbols.values()
+        if s.parent_id is None and not _is_test_file(s.file_path)
+        and s.kind.value not in ("unknown", "module")
+    ]
+    if len(_all_top691) >= 5:
+        _var_count691 = sum(
+            1 for s in _all_top691
+            if s.kind.value in ("variable", "constant")
+        )
+        if _var_count691 / len(_all_top691) > 0.20:
+            _vpct691 = int(_var_count691 / len(_all_top691) * 100)
+            lines.append(
+                f"high global state: {_vpct691}% of top-level symbols are variables/constants"
+                f" — check for mutable globals; prefer dependency injection or module-level constants"
+            )
+
     return lines
 
 
