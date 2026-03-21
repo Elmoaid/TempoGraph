@@ -32266,252 +32266,446 @@ class TestDeadLongFunctionsS683:
         )
 
 
-# ── S678: Long function ───────────────────────────────────────────────────────
 
-class TestLongFunctionS678:
-    """S678: Focused function/method with 40+ lines emits long-function signal."""
 
-    def test_long_function_shown(self, tmp_path):
+# ── S684: Recursive function (focused) ────────────────────────────────────────
+
+class TestRecursiveFunctionS684:
+    """S684: Focused function that calls itself emits recursive-function signal."""
+
+    def test_recursive_shown(self, tmp_path):
         from tempograph.render.focused import render_focused
         from tempograph.builder import build_graph
 
-        # Build a 42-line function body
-        body = "def long_func():\n" + "    x = 0\n" * 41
-        (tmp_path / "app.py").write_text(body)
-        g = build_graph(str(tmp_path), use_cache=False)
-        out = render_focused(g, "long_func")
-        assert "long function" in out, (
-            f"Expected 'long function' for 42-line function; got:\n{out}"
+        (tmp_path / "math_utils.py").write_text(
+            "def factorial(n):\n"
+            "    if n <= 1:\n"
+            "        return 1\n"
+            "    return n * factorial(n - 1)\n"
         )
-
-    def test_long_function_absent(self, tmp_path):
-        from tempograph.render.focused import render_focused
-        from tempograph.builder import build_graph
-
         (tmp_path / "app.py").write_text(
-            "def short_func():\n"
-            "    x = 1\n"
-            "    y = 2\n"
-            "    return x + y\n"
+            "from math_utils import factorial\ndef run(): factorial(5)\n"
         )
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_focused(g, "short_func")
-        assert "long function" not in out, (
-            f"'long function' must not appear for a 4-line function; got:\n{out}"
+        out = render_focused(g, "factorial")
+        assert "recursive function" in out, (
+            f"Expected 'recursive function' for a self-calling function; got:\n{out}"
+        )
+
+    def test_recursive_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def add(x, y): return x + y\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import add\ndef run(): add(1, 2)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "add")
+        assert "recursive function" not in out, (
+            f"'recursive function' must not appear for non-recursive fn; got:\n{out}"
         )
 
 
-# ── S679: High orphan ratio ───────────────────────────────────────────────────
+# ── S685: Class-heavy repo (overview) ─────────────────────────────────────────
 
-class TestHighOrphanRatioS679:
-    """S679: More than 30% of source files have no importers emits high-orphan-ratio signal."""
+class TestClassHeavyRepoS685:
+    """S685: >60% of symbols are classes emits class-heavy-repo signal."""
 
-    def test_high_orphan_ratio_shown(self, tmp_path):
+    def test_class_heavy_shown(self, tmp_path):
         from tempograph.render.overview import render_overview
         from tempograph.builder import build_graph
 
-        # 3 of 4 source files are orphans (75% > 30%)
-        (tmp_path / "standalone1.py").write_text("def fn1(): pass\n")
-        (tmp_path / "standalone2.py").write_text("def fn2(): pass\n")
-        (tmp_path / "core.py").write_text("def core_fn(): pass\n")
-        (tmp_path / "consumer.py").write_text(
-            "from core import core_fn\ndef run(): core_fn()\n"
-        )
+        # 7 classes, 1 function = 87.5% classes
+        for i in range(7):
+            (tmp_path / f"model_{i}.py").write_text(f"class Model{i}: pass\n")
+        (tmp_path / "factory.py").write_text("def create(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_overview(g)
-        assert "high orphan ratio" in out, (
-            f"Expected 'high orphan ratio' when 75% of files have no importers; got:\n{out}"
+        assert "class-heavy repo" in out, (
+            f"Expected 'class-heavy repo' when classes dominate; got:\n{out}"
         )
 
-    def test_high_orphan_ratio_absent(self, tmp_path):
+    def test_class_heavy_absent(self, tmp_path):
         from tempograph.render.overview import render_overview
         from tempograph.builder import build_graph
 
-        # Only main.py (1/5) has no importers — 20% < 30%
-        (tmp_path / "core.py").write_text("def core_fn(): pass\n")
-        (tmp_path / "a.py").write_text("from core import core_fn\ndef fn_a(): core_fn()\n")
-        (tmp_path / "b.py").write_text("from core import core_fn\ndef fn_b(): core_fn()\n")
-        (tmp_path / "c.py").write_text("from core import core_fn\ndef fn_c(): core_fn()\n")
-        (tmp_path / "main.py").write_text(
-            "from a import fn_a\nfrom b import fn_b\nfrom c import fn_c\n"
-        )
+        # Balanced: 3 classes, 5 functions
+        for i in range(3):
+            (tmp_path / f"model_{i}.py").write_text(f"class Model{i}: pass\n")
+        for i in range(5):
+            (tmp_path / f"fn_{i}.py").write_text(f"def func_{i}(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_overview(g)
-        assert "high orphan ratio" not in out, (
-            f"'high orphan ratio' must not appear when only 1/5 files are orphans; got:\n{out}"
+        assert "class-heavy repo" not in out, (
+            f"'class-heavy repo' must not appear when classes are minority; got:\n{out}"
         )
 
 
-# ── S680: Test file blast ─────────────────────────────────────────────────────
+# ── S686: Zero-impact blast ────────────────────────────────────────────────────
 
-class TestTestFileBlastS680:
-    """S680: Blast target is a test file emits test-file-blast signal."""
+class TestZeroImpactBlastS686:
+    """S686: Blast target with no importers and no callers emits zero-impact-blast signal."""
 
-    def test_test_file_blast_shown(self, tmp_path):
+    def test_zero_impact_shown(self, tmp_path):
         from tempograph.render.blast import render_blast_radius
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
-        )
+        # island.py is not imported anywhere
+        (tmp_path / "island.py").write_text("def standalone(): pass\n")
+        (tmp_path / "app.py").write_text("def main(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_blast_radius(g, "test_app.py")
-        assert "test file blast" in out, (
-            f"Expected 'test file blast' when blasting a test file; got:\n{out}"
+        out = render_blast_radius(g, "island.py")
+        assert "zero-impact blast" in out, (
+            f"Expected 'zero-impact blast' for isolated file; got:\n{out}"
         )
 
-    def test_test_file_blast_absent(self, tmp_path):
+    def test_zero_impact_absent(self, tmp_path):
         from tempograph.render.blast import render_blast_radius
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef main(): helper()\n"
         )
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_blast_radius(g, "app.py")
-        assert "test file blast" not in out, (
-            f"'test file blast' must not appear when blasting a production file; got:\n{out}"
+        out = render_blast_radius(g, "utils.py")
+        assert "zero-impact blast" not in out, (
+            f"'zero-impact blast' must not appear for file with importers; got:\n{out}"
         )
 
 
-# ── S681: Test-only diff ──────────────────────────────────────────────────────
+# ── S687: Large diff ───────────────────────────────────────────────────────────
 
-class TestTestOnlyDiffS681:
-    """S681: All changed files are test files emits test-only-diff signal."""
+class TestLargeDiffS687:
+    """S687: Diff spanning 5+ files emits large-diff signal."""
 
-    def test_test_only_diff_shown(self, tmp_path):
+    def test_large_diff_shown(self, tmp_path):
         from tempograph.render.diff import render_diff_context
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
-        )
+        for i in range(6):
+            (tmp_path / f"mod_{i}.py").write_text(f"def fn_{i}(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_diff_context(g, changed_files=["test_app.py"])
-        assert "test-only diff" in out, (
-            f"Expected 'test-only diff' when all changed files are tests; got:\n{out}"
+        out = render_diff_context(g, [f"mod_{i}.py" for i in range(6)])
+        assert "large diff" in out, (
+            f"Expected 'large diff' for 6-file diff; got:\n{out}"
         )
 
-    def test_test_only_diff_absent(self, tmp_path):
+    def test_large_diff_absent(self, tmp_path):
         from tempograph.render.diff import render_diff_context
         from tempograph.builder import build_graph
 
-        (tmp_path / "app.py").write_text("def run(): pass\n")
-        (tmp_path / "test_app.py").write_text(
-            "from app import run\ndef test_run(): run()\n"
-        )
+        for i in range(3):
+            (tmp_path / f"mod_{i}.py").write_text(f"def fn_{i}(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
-        out = render_diff_context(g, changed_files=["test_app.py", "app.py"])
-        assert "test-only diff" not in out, (
-            f"'test-only diff' must not appear when diff includes production files; got:\n{out}"
+        out = render_diff_context(g, ["mod_0.py", "mod_1.py"])
+        assert "large diff" not in out, (
+            f"'large diff' must not appear for 2-file diff; got:\n{out}"
         )
 
 
-# ── S682: Complexity outlier ──────────────────────────────────────────────────
+# ── S688: Solo file hotspot ────────────────────────────────────────────────────
 
-class TestComplexityOutlierS682:
-    """S682: Top hotspot complexity is 5x+ second hotspot's complexity emits complexity-outlier signal."""
+class TestSoloFileHotspotS688:
+    """S688: Top hotspot is the only symbol in its file → solo-file-hotspot signal."""
 
-    def test_complexity_outlier_shown(self, tmp_path):
+    def test_solo_file_shown(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
         from tempograph.builder import build_graph
 
-        # Very deeply nested function (high cx)
-        (tmp_path / "logic.py").write_text(
-            "def do_it_all(a, b, c, d, e, f):\n"
-            "    if a:\n"
-            "        if b:\n"
-            "            if c:\n"
-            "                if d:\n"
-            "                    if e:\n"
-            "                        if f:\n"
-            "                            return a + b + c\n"
-            "                        return a\n"
-            "                    return b\n"
-            "                return c\n"
-            "            return d\n"
-            "        return e\n"
-            "    return f\n"
-            "def get_val(x): return x\n"
-        )
-        for i in range(3):
-            (tmp_path / f"c_complex_{i}.py").write_text(
-                f"from logic import do_it_all\ndef task_{i}(): do_it_all({i},{i},{i},{i},{i},{i})\n"
-            )
-        for i in range(2):
-            (tmp_path / f"c_simple_{i}.py").write_text(
-                f"from logic import get_val\ndef use_{i}(): get_val({i})\n"
+        # sole.py has exactly one function, called from many files
+        (tmp_path / "sole.py").write_text("def gateway(x): return x\n")
+        for i in range(6):
+            (tmp_path / f"client_{i}.py").write_text(
+                f"from sole import gateway\ndef use_{i}(): gateway({i})\n"
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "complexity outlier" in out, (
-            f"Expected 'complexity outlier' when top fn has 6x nested branches vs simple fn; got:\n{out}"
+        assert "solo file hotspot" in out, (
+            f"Expected 'solo file hotspot' for single-symbol hotspot file; got:\n{out}"
         )
 
-    def test_complexity_outlier_absent(self, tmp_path):
+    def test_solo_file_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
         from tempograph.builder import build_graph
 
-        # Both functions have similar complexity
-        (tmp_path / "logic.py").write_text(
-            "def fn_a(x):\n"
-            "    if x > 0:\n"
-            "        return x\n"
-            "    return -x\n"
-            "def fn_b(y):\n"
-            "    if y > 0:\n"
-            "        return y\n"
-            "    return -y\n"
+        # hub.py has 2 symbols — not a solo file
+        (tmp_path / "hub.py").write_text(
+            "def primary(x): return x\ndef secondary(x): return x + 1\n"
         )
-        for i in range(3):
-            (tmp_path / f"caller_a_{i}.py").write_text(
-                f"from logic import fn_a\ndef use_a_{i}(): fn_a({i})\n"
-            )
-        for i in range(2):
-            (tmp_path / f"caller_b_{i}.py").write_text(
-                f"from logic import fn_b\ndef use_b_{i}(): fn_b({i})\n"
+        for i in range(5):
+            (tmp_path / f"user_{i}.py").write_text(
+                f"from hub import primary, secondary\n"
+                f"def task_{i}(): primary({i}); secondary({i})\n"
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "complexity outlier" not in out, (
-            f"'complexity outlier' must not appear when hotspots have similar complexity; got:\n{out}"
+        assert "solo file hotspot" not in out, (
+            f"'solo file hotspot' must not appear when file has multiple symbols; got:\n{out}"
         )
 
 
-# ── S683: Dead private functions ──────────────────────────────────────────────
+# ── S689: Dead derived class ───────────────────────────────────────────────────
 
-class TestDeadPrivateFunctionsS683:
-    """S683: Unused functions with leading underscore emits dead-private-functions signal."""
+class TestDeadDerivedClassS689:
+    """S689: Unused class that inherits from another emits dead-derived-classes signal."""
 
-    def test_dead_private_shown(self, tmp_path):
+    def test_dead_derived_shown(self, tmp_path):
         from tempograph.render.dead import render_dead_code
         from tempograph.builder import build_graph
 
-        (tmp_path / "utils.py").write_text(
-            "def _normalize(text): return text.strip()\n"
-            "def _validate(data): return bool(data)\n"
+        (tmp_path / "base.py").write_text("class BaseHandler: pass\n")
+        (tmp_path / "handlers.py").write_text(
+            "from base import BaseHandler\n"
+            "class SpecialHandler(BaseHandler): pass\n"
         )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_dead_code(g)
-        assert "dead private functions" in out, (
-            f"Expected 'dead private functions' for unused _foo functions; got:\n{out}"
+        assert "dead derived classes" in out, (
+            f"Expected 'dead derived classes' for unused subclass; got:\n{out}"
         )
 
-    def test_dead_private_absent(self, tmp_path):
+    def test_dead_derived_absent(self, tmp_path):
         from tempograph.render.dead import render_dead_code
         from tempograph.builder import build_graph
 
-        (tmp_path / "utils.py").write_text(
-            "def _normalize(text): return text.strip()\n"
+        (tmp_path / "base.py").write_text("class BaseHandler: pass\n")
+        (tmp_path / "handlers.py").write_text(
+            "from base import BaseHandler\n"
+            "class SpecialHandler(BaseHandler): pass\n"
         )
         (tmp_path / "service.py").write_text(
-            "from utils import _normalize\ndef process(t): return _normalize(t)\n"
+            "from handlers import SpecialHandler\n"
+            "def run(): return SpecialHandler()\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from service import run\ndef main(): run()\n"
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_dead_code(g)
-        assert "dead private functions" not in out, (
-            f"'dead private functions' must not appear when _foo is called from outside; got:\n{out}"
+        assert "dead derived classes" not in out, (
+            f"'dead derived classes' must not appear when subclass is used; got:\n{out}"
+        )
+
+
+# ── S684: Recursive function ──────────────────────────────────────────────────
+
+class TestRecursiveFunctionS684:
+    """S684: Focused symbol calls itself directly emits recursive-function signal."""
+
+    def test_recursive_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "math_utils.py").write_text(
+            "def factorial(n):\n"
+            "    if n <= 1:\n"
+            "        return 1\n"
+            "    return n * factorial(n - 1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "factorial")
+        assert "recursive function" in out, (
+            f"Expected 'recursive function' for self-calling function; got:\n{out}"
+        )
+
+    def test_recursive_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def double(n):\n"
+            "    return n * 2\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "double")
+        assert "recursive function" not in out, (
+            f"'recursive function' must not appear for non-recursive function; got:\n{out}"
+        )
+
+
+# ── S685: Class-heavy repo ────────────────────────────────────────────────────
+
+class TestClassHeavyRepoS685:
+    """S685: More than 60% of non-test exported symbols are classes emits class-heavy signal."""
+
+    def test_class_heavy_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 4 classes + 1 function = 80% classes (>60%)
+        (tmp_path / "models.py").write_text(
+            "class UserModel: pass\n"
+            "class OrderModel: pass\n"
+            "class ProductModel: pass\n"
+            "class InvoiceModel: pass\n"
+            "def bootstrap(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "class-heavy repo" in out, (
+            f"Expected 'class-heavy repo' when 80% of symbols are classes; got:\n{out}"
+        )
+
+    def test_class_heavy_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 3 classes + 3 functions = 50% classes (<=60%)
+        (tmp_path / "mixed.py").write_text(
+            "class UserModel: pass\n"
+            "class OrderModel: pass\n"
+            "class ProductModel: pass\n"
+            "def create(): pass\n"
+            "def update(): pass\n"
+            "def delete(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "class-heavy repo" not in out, (
+            f"'class-heavy repo' must not appear when only 50% of symbols are classes; got:\n{out}"
+        )
+
+
+# ── S686: Zero-impact blast ───────────────────────────────────────────────────
+
+class TestZeroImpactBlastS686:
+    """S686: Blast target has no importers and no callers emits zero-impact-blast signal."""
+
+    def test_zero_impact_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "island.py").write_text("def standalone(): return 42\n")
+        (tmp_path / "other.py").write_text("def unrelated(): return 0\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "island.py")
+        assert "zero-impact blast" in out, (
+            f"Expected 'zero-impact blast' for file with no importers or callers; got:\n{out}"
+        )
+
+    def test_zero_impact_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "lib.py").write_text("def helper(): return 42\n")
+        (tmp_path / "app.py").write_text("from lib import helper\ndef run(): helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "lib.py")
+        assert "zero-impact blast" not in out, (
+            f"'zero-impact blast' must not appear for file that IS imported; got:\n{out}"
+        )
+
+
+# ── S687: Large diff ──────────────────────────────────────────────────────────
+
+class TestLargeDiffS687:
+    """S687: Diff spans 5+ files emits large-diff signal."""
+
+    def test_large_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(
+            g, changed_files=["app.py", "utils.py", "models.py", "views.py", "routes.py"]
+        )
+        assert "large diff" in out, (
+            f"Expected 'large diff' when 5 files are changed; got:\n{out}"
+        )
+
+    def test_large_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["app.py", "utils.py", "models.py"])
+        assert "large diff" not in out, (
+            f"'large diff' must not appear for 3-file diff; got:\n{out}"
+        )
+
+
+# ── S688: Solo file hotspot ───────────────────────────────────────────────────
+
+class TestSoloFileHotspotS688:
+    """S688: Top hotspot is the only non-test symbol in its file emits solo-file-hotspot signal."""
+
+    def test_solo_file_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # worker.py has exactly 1 symbol (process), called by 4 callers
+        (tmp_path / "worker.py").write_text("def process(x): return x * 2\n")
+        for i in range(4):
+            (tmp_path / f"task_{i}.py").write_text(
+                f"from worker import process\ndef run_{i}(): process({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "solo file hotspot" in out, (
+            f"Expected 'solo file hotspot' for single-symbol file as top hotspot; got:\n{out}"
+        )
+
+    def test_solo_file_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # worker.py has 2 symbols (process + cleanup)
+        (tmp_path / "worker.py").write_text(
+            "def process(x): return x * 2\n"
+            "def cleanup(): pass\n"
+        )
+        for i in range(4):
+            (tmp_path / f"task_{i}.py").write_text(
+                f"from worker import process\ndef run_{i}(): process({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "solo file hotspot" not in out, (
+            f"'solo file hotspot' must not appear when file has multiple symbols; got:\n{out}"
+        )
+
+
+# ── S689: Dead derived class ──────────────────────────────────────────────────
+
+class TestDeadDerivedClassS689:
+    """S689: Dead class that inherits from a non-object base emits dead-derived-classes signal."""
+
+    def test_dead_derived_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "adapters.py").write_text(
+            "class DatabaseAdapter:\n"
+            "    def connect(self): pass\n\n"
+            "class MySQLAdapter(DatabaseAdapter):\n"
+            "    def connect(self): return 'mysql'\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead derived classes" in out, (
+            f"Expected 'dead derived classes' for unused subclass; got:\n{out}"
+        )
+
+    def test_dead_derived_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "adapters.py").write_text(
+            "class DatabaseAdapter:\n"
+            "    def connect(self): pass\n\n"
+            "class MySQLAdapter(DatabaseAdapter):\n"
+            "    def connect(self): return 'mysql'\n"
+        )
+        (tmp_path / "service.py").write_text(
+            "from adapters import MySQLAdapter\ndef connect(): return MySQLAdapter()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead derived classes" not in out, (
+            f"'dead derived classes' must not appear when subclass is used; got:\n{out}"
         )

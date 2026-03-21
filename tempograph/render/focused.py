@@ -3373,6 +3373,39 @@ def _signals_focused_fn_advanced(
                 f" — consider extracting sub-functions to reduce cognitive load"
             )
 
+    # S684: Recursive function — focused symbol calls itself directly.
+    # Recursive functions have implicit stack-depth constraints and subtle base-case bugs;
+    # verifying termination conditions and maximum input size is essential before changes.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim684 = _seed_syms[0]
+        if (
+            not _is_test_file(_prim684.file_path)
+            and _prim684.kind.value in ("function", "method")
+        ):
+            _callees684 = graph.callees_of(_prim684.id)
+            if any(c.id == _prim684.id for c in _callees684):
+                lines.append(
+                    f"\nrecursive function: {_prim684.name} calls itself directly"
+                    f" — verify base case and maximum recursion depth before modifying"
+                )
+
+    # S690: Method-heavy class — focused class has 10+ method children.
+    # A class with many methods accumulates too many responsibilities;
+    # the Single Responsibility Principle suggests splitting by behaviour group.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim690 = _seed_syms[0]
+        if (
+            not _is_test_file(_prim690.file_path)
+            and _prim690.kind.value == "class"
+        ):
+            _children690 = graph.children_of(_prim690.id)
+            _methods690 = [c for c in _children690 if c.kind.value in ("method", "function")]
+            if len(_methods690) >= 10:
+                lines.append(
+                    f"\nmethod-heavy class: {_prim690.name} has {len(_methods690)} methods"
+                    f" — god class; split by responsibility before adding more methods"
+                )
+
     return lines
 
 

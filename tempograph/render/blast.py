@@ -1839,6 +1839,37 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — blast radius of test files is rarely meaningful; consider targeting the source file"
         )
 
+    # S686: Zero-impact blast — blast target has no importers and no cross-file callers.
+    # A file that nothing imports is an island; changes to it have no blast radius
+    # and the file itself may be dead code or an unused entry point.
+    _importers686 = graph.importers_of(_fp589)
+    _ext686 = [f for f in _importers686 if f != _fp589]
+    _fi686 = graph.files.get(_fp589)
+    _all_syms686 = [
+        s for s in graph.symbols.values()
+        if s.file_path == _fp589
+    ] if _fi686 else []
+    _has_ext_callers686 = any(
+        graph.callers_of(s.id)
+        for s in _all_syms686
+    )
+    if not _ext686 and not _has_ext_callers686 and not _is_test_file(_fp589):
+        lines.append(
+            f"zero-impact blast: {_fp589.rsplit('/', 1)[-1]} has no importers or callers"
+            f" — island file; changes are risk-free but file itself may be dead code"
+        )
+
+    # S692: Heavily imported — blast target is imported by 10+ files.
+    # Files with 10+ importers are deeply coupled into the codebase;
+    # even a small interface change can require updates across many consuming files.
+    _all_importers692 = graph.importers_of(_fp589)
+    _ext_importers692 = [f for f in _all_importers692 if f != _fp589]
+    if len(_ext_importers692) >= 10:
+        lines.append(
+            f"heavily imported: {_fp589.rsplit('/', 1)[-1]} is imported by {len(_ext_importers692)} files"
+            f" — wide coupling; interface changes require coordinated updates across the codebase"
+        )
+
     return "\n".join(lines)
 
 

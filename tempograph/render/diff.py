@@ -286,6 +286,15 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — lower risk change; confirm no production logic was added to test files"
         )
 
+    # S687: Large diff — diff spans 5+ files.
+    # Large diffs are harder to review atomically; reviewers lose context across many files
+    # and are more likely to miss subtle interactions between the changes.
+    if len(changed_files) >= 5:
+        lines.append(
+            f"large diff: {len(changed_files)} files changed"
+            f" — consider splitting into smaller focused PRs for easier review"
+        )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
