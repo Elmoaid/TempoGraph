@@ -2298,6 +2298,43 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                     f" — MRO-sensitive; reordering bases changes behavior"
                 )
 
+    # S328: Verbose function name — focused function has a snake_case name with 5+ segments.
+    # Functions with very long names often evolved through over-specialisation;
+    # they tend to be hard to discover, test, and refactor without cascading renames.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim328 = next(
+            (s for s in _seed_syms if s.kind.value in ("function", "method")), None
+        )
+        if _prim328:
+            _parts328 = _prim328.name.split("_")
+            if len(_parts328) >= 5 and all(len(p) > 0 for p in _parts328):
+                lines.append(
+                    f"\nverbose name: {_prim328.name} has {len(_parts328)}-segment name"
+                    f" — over-specific; consider splitting the function to reflect the name"
+                )
+
+    # S334: Interface method — focused method is declared in a class with 3+ abstract methods.
+    # Interface methods define contracts; any change to parameters or return type is a
+    # breaking change for all implementors, not just direct callers.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim334 = next((s for s in _seed_syms if s.kind.value == "method"), None)
+        if _prim334 and _prim334.parent_id:
+            _parent334 = graph.symbols.get(_prim334.parent_id)
+            if _parent334 and _parent334.kind.value == "class":
+                # Count abstract methods in parent
+                _sibling_methods334 = [
+                    s for s in graph.symbols.values()
+                    if s.parent_id == _parent334.id and s.kind.value == "method"
+                    and s.line_count <= 1  # stub/abstract: body is just pass or raise
+                    and s.name not in ("__init__", "__new__", "__repr__", "__str__")
+                ]
+                if len(_sibling_methods334) >= 3:
+                    lines.append(
+                        f"\ninterface method: {_prim334.name} is in abstract class {_parent334.name}"
+                        f" ({len(_sibling_methods334)} abstract methods)"
+                        f" — contract change; all implementations must be updated"
+                    )
+
     return "\n".join(lines)
 
 

@@ -1031,6 +1031,54 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — removed security check; verify endpoint is still protected before removing"
         )
 
+    # S329: Dead notification functions — notify_*/send_notification_*/alert_* with 0 callers.
+    # Notification functions are often wired to user-facing events; unused ones suggest
+    # a removed event path that users may still expect to trigger notifications.
+    _s329_notif_prefixes = (
+        "notify_", "send_notification", "send_alert_", "alert_", "dispatch_event_",
+        "emit_event_", "publish_", "broadcast_",
+    )
+    _s329_dead_notif = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s329_notif_prefixes)
+    ]
+    if len(_s329_dead_notif) >= 2:
+        _notif_names329 = ", ".join(s.name for s in _s329_dead_notif[:3])
+        if len(_s329_dead_notif) > 3:
+            _notif_names329 += f" +{len(_s329_dead_notif) - 3} more"
+        lines.append(
+            f"dead notifications: {len(_s329_dead_notif)} unused notification fn(s)"
+            f" ({_notif_names329})"
+            f" — removed event path; users may still expect these notifications"
+        )
+
+    # S335: Dead state handlers — on_enter_*/on_exit_*/transition_* functions with 0 callers.
+    # State machine handlers that are never called indicate a removed state or transition;
+    # their presence implies a state machine model that is no longer accurate.
+    _s335_state_prefixes = (
+        "on_enter_", "on_exit_", "on_leave_", "transition_", "on_transition_",
+        "handle_state_", "state_", "enter_state_",
+    )
+    _s335_dead_state = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s335_state_prefixes)
+    ]
+    if len(_s335_dead_state) >= 2:
+        _state_names335 = ", ".join(s.name for s in _s335_dead_state[:3])
+        if len(_s335_dead_state) > 3:
+            _state_names335 += f" +{len(_s335_dead_state) - 3} more"
+        lines.append(
+            f"dead state handlers: {len(_s335_dead_state)} unused state transition fn(s)"
+            f" ({_state_names335})"
+            f" — removed state or transition; state machine model may be inaccurate"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
