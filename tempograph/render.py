@@ -179,6 +179,28 @@ def render_overview(graph: Tempo) -> str:
         lines.append("")
         lines.append(f"hot symbols: {', '.join(_hot_parts)}")
 
+    # Function size distribution: tiny/small/medium/large/huge counts across source functions.
+    # One-line style signal — "large: 3" means 3 functions >50L each; agents know to grep not read.
+    _fn_sizes = {"tiny": 0, "small": 0, "medium": 0, "large": 0, "huge": 0}
+    for sym in graph.symbols.values():
+        if sym.kind.value not in ("function", "method") or _is_test_file(sym.file_path):
+            continue
+        lc = sym.line_count
+        if lc <= 5:
+            _fn_sizes["tiny"] += 1
+        elif lc <= 20:
+            _fn_sizes["small"] += 1
+        elif lc <= 50:
+            _fn_sizes["medium"] += 1
+        elif lc <= 150:
+            _fn_sizes["large"] += 1
+        else:
+            _fn_sizes["huge"] += 1
+    _fn_total = sum(_fn_sizes.values())
+    if _fn_total >= 5:
+        _fs_parts = [f"{k}: {v}" for k, v in _fn_sizes.items() if v > 0]
+        lines.append(f"fn sizes: {', '.join(_fs_parts)}")
+
     # Top imported: files most imported by other source files — true infrastructure files.
     # Distinct from hot symbols (call frequency) and hot files (commit count).
     _importer_counts: dict[str, int] = {}
