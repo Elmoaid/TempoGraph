@@ -532,6 +532,31 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
     except Exception:
         pass
 
+    # S128: Long-stale hotspot — top-ranked file untouched for 180+ days.
+    # A high-risk file that's never modified is dangerous: it may have accumulated
+    # tech debt silently. Different from S94 (60d stable symbols) — this is file-level age.
+    # Only shown when any top-5 hotspot file has age >= 180d.
+    if graph.root and scores:
+        try:
+            from ..git import file_last_modified_days as _fld128
+            _top_hotspot_files: list[tuple[float, str]] = []
+            _seen_hs_fps: set[str] = set()
+            for _sc128, _sym128 in scores[:top_n]:
+                if _sym128.file_path not in _seen_hs_fps and not _is_test_file(_sym128.file_path):
+                    _seen_hs_fps.add(_sym128.file_path)
+                    _top_hotspot_files.append((_sc128, _sym128.file_path))
+            for _sc128, _fp128 in _top_hotspot_files[:5]:
+                _age128 = _fld128(graph.root, _fp128)
+                if _age128 is not None and _age128 >= 180:
+                    lines.append("")
+                    lines.append(
+                        f"long-stale hotspot: {_fp128.rsplit('/', 1)[-1]}"
+                        f" ({_age128}d unchanged, risk={int(_sc128)})"
+                    )
+                    break  # only show the most concerning one
+        except Exception:
+            pass
+
     # S107: Import bottleneck — the file most depended on by other source files.
     # A heavily-imported file that's also actively churning = maximum blast risk.
     # Shows top file with importer count + velocity if available.
