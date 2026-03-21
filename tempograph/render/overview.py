@@ -1118,6 +1118,22 @@ def render_overview(graph: Tempo) -> str:
             f" — changes here have wide blast radius"
         )
 
+    # S173: Private ratio — percentage of non-test symbols that are unexported (private).
+    # High private ratio (>= 80%) means the codebase hides most logic; low = over-exposed API.
+    # Only shown when >= 20 source symbols exist.
+    _s173_src_syms = [
+        s for s in graph.symbols.values()
+        if not _is_test_file(s.file_path)
+    ]
+    if len(_s173_src_syms) >= 20:
+        _s173_private_count = sum(1 for s in _s173_src_syms if not s.exported)
+        _s173_ratio = _s173_private_count / len(_s173_src_syms) * 100
+        if _s173_ratio >= 80:
+            lines.append(
+                f"private ratio: {_s173_ratio:.0f}% of symbols are unexported"
+                f" — heavily internalized codebase"
+            )
+
     # S167: Orphan files — source files with 0 importers and 0 external callers to any symbol.
     # Isolated files are likely dead entry points or abandoned modules.
     # Only shown when 2+ non-entry-point source files are fully isolated.
