@@ -3094,6 +3094,24 @@ def _signals_async_oop(
             f" — cross-language codebase; ensure tooling covers all languages"
         )
 
+    # S817: No docstring coverage — 10+ public functions but none have docstrings.
+    # Undocumented codebases rely entirely on code readability; agents and reviewers
+    # cannot infer intent from names alone, increasing onboarding and review cost.
+    _pub_fns817 = [
+        s for s in graph.symbols.values()
+        if s.kind.value in ("function",)
+        and s.parent_id is None
+        and not s.name.startswith("_")
+        and not _is_test_file(s.file_path)
+    ]
+    if len(_pub_fns817) >= 10:
+        _with_doc817 = [s for s in _pub_fns817 if s.doc]
+        if not _with_doc817:
+            lines.append(
+                f"no docstring coverage: {len(_pub_fns817)} public functions with zero docstrings"
+                f" — undocumented API; intent cannot be inferred from names alone"
+            )
+
     # S811: Large average file size — average source file line count exceeds 300.
     # Oversized files accumulate multiple responsibilities; they increase cognitive load
     # and are a leading indicator of future hotspots and refactoring pressure.
