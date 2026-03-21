@@ -1320,6 +1320,16 @@ def _build_symbol_block_lines(
             _callers = graph.callers_of(sym.id)
             if len(_callers) >= 2 and all(_is_test_file(c.file_path) for c in _callers):
                 warnings.append("TEST-ONLY CALLERS — not called from production code")
+        # Circular import: if the seed's file is in a circular import chain, flag it.
+        # Agents need to know this to avoid making the cycle worse or getting confused
+        # about why re-imports behave unexpectedly.
+        if depth == 0 and graph.root:
+            _cycles = graph.detect_circular_imports()
+            for _cycle in _cycles:
+                if sym.file_path in _cycle:
+                    _names = [fp.rsplit("/", 1)[-1] for fp in _cycle]
+                    warnings.append(f"CIRCULAR IMPORT — {' → '.join(_names)}")
+                    break
         if warnings:
             block_lines.append(f"{indent}  ⚠ {', '.join(warnings)}")
 
