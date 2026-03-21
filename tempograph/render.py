@@ -1891,6 +1891,31 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             lines.append("")
             token_count = count_tokens("\n".join(lines))
 
+    # Co-change partners missing from diff.
+    # Warns the agent when a file that historically co-changes with a changed file is absent —
+    # classic sign of an incomplete changeset (e.g. touched auth.py but not session.py).
+    if graph.root and token_count < max_tokens - 80:
+        try:
+            from .git import cochange_pairs as _cpairs
+            _missing: dict[str, int] = {}  # partner_path → count (deduped)
+            for fp in sorted(normalized):
+                for p in _cpairs(graph.root, fp, n=5, min_count=5):
+                    partner = p["path"]
+                    if partner not in normalized and partner not in _missing and partner in graph.files:
+                        _missing[partner] = p["count"]
+            if _missing:
+                _sorted_missing = sorted(_missing.items(), key=lambda x: -x[1])
+                _warn_parts = [f"{p.rsplit('/', 1)[-1]} ({c}x)" for p, c in _sorted_missing[:3]]
+                _overflow_warn = len(_sorted_missing) - 3
+                _warn_line = f"Co-change warning: {', '.join(_warn_parts)} often change with this diff — missing from changeset"
+                if _overflow_warn > 0:
+                    _warn_line += f" (+{_overflow_warn} more)"
+                lines.append(_warn_line)
+                lines.append("")
+                token_count = count_tokens("\n".join(lines))
+        except Exception:
+            pass
+
     if max_tokens - token_count > 500:
         lines.append("Key symbols in changed files:")
         for sym in affected_symbols:
@@ -1997,6 +2022,9 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
     # Computed once per file, not per symbol, to avoid redundant traversal
     blast_cache: dict[str, dict[str, int]] = {}
 
+    # Pre-check for test files once; avoids O(symbols × files) per-symbol check
+    _any_tests_in_project = any(_is_test_file(fp) for fp in graph.files)
+
     scores: list[tuple[float, Symbol]] = []
 
     for sym in graph.symbols.values():
@@ -2101,6 +2129,15 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 parts = [f"{binfo[cat]} {cat}" for cat in ("source", "test", "config") if binfo.get(cat, 0) > 0]
                 breakdown = f" ({', '.join(parts)})" if parts else ""
                 warnings.append(f"blast: {bc} files depend{breakdown} — changes need broad review")
+        # Test coverage warning: high-blast symbols with no test coverage at all.
+        # Only flag when: (a) project has tests, (b) symbol is widely used cross-file,
+        # (c) no test file imports or calls this symbol's file.
+        # Avoids noise: if tests import the file, at least some coverage exists.
+        if cross_files >= 5 and _any_tests_in_project and sym.file_path:
+            _test_importers = [i for i in graph.importers_of(sym.file_path) if _is_test_file(i)]
+            _test_callers_sym = [c for c in graph.callers_of(sym.id) if _is_test_file(c.file_path)]
+            if not _test_importers and not _test_callers_sym:
+                warnings.append("no test coverage — high blast, no safety net")
         if warnings:
             lines.append(f"    → {'; '.join(warnings)}")
 
