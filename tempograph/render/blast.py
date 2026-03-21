@@ -2411,6 +2411,17 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — schema changes are often irreversible; require DBA review and tested rollback plan"
         )
 
+    # S974: Storage blast — blast target is a storage/repository/data access file.
+    # Storage abstractions are used across all business logic layers; changes to the
+    # storage API break callers silently if query shapes, return types, or error behavior change.
+    _store_kws974 = ("store", "storage", "repository", "repo", "dao", "data_access", "persistence")
+    _fname974 = _fp589.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    if any(_fname974 == kw or _fname974.startswith(kw + "_") or _fname974.endswith("_" + kw) for kw in _store_kws974):
+        lines.append(
+            f"storage blast: {_fp589.rsplit('/', 1)[-1]} is a data storage abstraction"
+            f" — query shape or return type changes silently break all business logic callers"
+        )
+
     return "\n".join(lines)
 
 

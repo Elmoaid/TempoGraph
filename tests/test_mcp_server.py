@@ -45720,3 +45720,178 @@ class TestDeadConvertersS971:
         assert "dead converters" not in out, (
             f"'dead converters' must not appear when converter is called; got:\n{out}"
         )
+
+class TestOrphanSymbolS972:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.focused import render_focused
+
+        (tmp_path / "unused.py").write_text(
+            "def isolated_fn(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "isolated_fn")
+        assert "orphan symbol" in out, (
+            f"'orphan symbol' expected for function with no callers/callees; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.focused import render_focused
+
+        (tmp_path / "service.py").write_text(
+            "def helper(): pass\n"
+            "def run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "run")
+        assert "orphan symbol" not in out, (
+            f"'orphan symbol' must not appear for function with callees; got:\n{out}"
+        )
+
+
+class TestLoneClassS973:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.overview import render_overview
+
+        fns = "".join(f"def fn_{i}(): pass\n" for i in range(10))
+        (tmp_path / "module.py").write_text(
+            fns + "class Config: pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "lone class" in out, (
+            f"'lone class' expected for 1 class + 10 functions; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.overview import render_overview
+
+        fns = "".join(f"def fn_{i}(): pass\n" for i in range(10))
+        (tmp_path / "module.py").write_text(
+            fns + "class Config: pass\nclass Settings: pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "lone class" not in out, (
+            f"'lone class' must not appear with 2+ classes; got:\n{out}"
+        )
+
+
+class TestStorageBlastS974:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.blast import render_blast_radius
+
+        (tmp_path / "user_repository.py").write_text("def find_user(id): pass\n")
+        (tmp_path / "service.py").write_text("from user_repository import find_user\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "user_repository.py")
+        assert "storage blast" in out, (
+            f"'storage blast' expected for *_repository.py; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.blast import render_blast_radius
+
+        (tmp_path / "auth_service.py").write_text("def authenticate(): pass\n")
+        (tmp_path / "main.py").write_text("from auth_service import authenticate\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "auth_service.py")
+        assert "storage blast" not in out, (
+            f"'storage blast' must not appear for non-storage filename; got:\n{out}"
+        )
+
+
+class TestBuildConfigInDiffS975:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.diff import render_diff_context
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        (tmp_path / "Makefile").write_text("build:\n\tpython setup.py build\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "Makefile"])
+        assert "build config in diff" in out, (
+            f"'build config in diff' expected when Makefile in diff; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.diff import render_diff_context
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "utils.py"])
+        assert "build config in diff" not in out, (
+            f"'build config in diff' must not appear for normal code diff; got:\n{out}"
+        )
+
+
+class TestWideHotspotS976:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.hotspots import render_hotspots
+
+        (tmp_path / "core.py").write_text("def shared(): pass\n")
+        for dirname in ("api", "jobs", "workers"):
+            sub = tmp_path / dirname
+            sub.mkdir()
+            (sub / "service.py").write_text(
+                f"from core import shared\ndef run(): shared()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "wide hotspot" in out, (
+            f"'wide hotspot' expected for function called from 3 directories; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.hotspots import render_hotspots
+
+        fns = "".join(f"def dep_{i}(): pass\n" for i in range(10))
+        calls = "; ".join(f"dep_{i}()" for i in range(10))
+        (tmp_path / "service.py").write_text(fns + f"def process(): {calls}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "wide hotspot" not in out, (
+            f"'wide hotspot' must not appear for same-directory callers; got:\n{out}"
+        )
+
+
+class TestDeadSqlFunctionsS977:
+    def test_shown(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+
+        (tmp_path / "db.py").write_text(
+            "def query_users(): pass\n"
+            "def fetch_orders(): pass\n"
+        )
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead sql" in out, (
+            f"'dead sql' expected for unused query_/fetch_ functions; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+
+        (tmp_path / "db.py").write_text("def query_users(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from db import query_users\n"
+            "def run(): return query_users()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead sql" not in out, (
+            f"'dead sql' must not appear when query_ function is called; got:\n{out}"
+        )
+
