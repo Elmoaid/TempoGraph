@@ -2347,6 +2347,27 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — substantial speculative work; review intent before deleting"
         )
 
+    # S689: Dead derived class — dead class that inherits from another class (has a base class).
+    # A dead class that was designed to extend a hierarchy represents architectural planning
+    # that was never activated; it may indicate an abandoned feature or incomplete refactor.
+    _dead_derived689 = [
+        s for s in dead
+        if s.kind.value == "class"
+        and not _is_test_file(s.file_path)
+        and s.signature
+        and "(" in s.signature
+        and ")" in s.signature
+        and s.signature.split("(", 1)[1].split(")", 1)[0].strip() not in ("", "object")
+    ]
+    if _dead_derived689:
+        _der_names689 = ", ".join(s.name for s in _dead_derived689[:3])
+        if len(_dead_derived689) > 3:
+            _der_names689 += f" +{len(_dead_derived689) - 3} more"
+        lines.append(
+            f"dead derived classes: {len(_dead_derived689)} unused subclass(es) ({_der_names689})"
+            f" — abandoned subclass design; verify base class is still the right abstraction"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

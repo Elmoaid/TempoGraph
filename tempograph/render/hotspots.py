@@ -2142,5 +2142,24 @@ def _collect_hotspots_signals(
                 f" vs next={_second682.complexity} — extreme outlier; highest-priority refactor target"
             )
 
+    # S688: Solo file hotspot — top hotspot is the only non-test symbol in its file.
+    # A file with a single hotspot symbol is a candidate for inlining into its callers
+    # or merging into a related module to reduce file proliferation.
+    if scores and scores[0]:
+        _top688 = scores[0][1]
+        if _top688 is not None and not _is_test_file(_top688.file_path):
+            _file_syms688 = [
+                s for s in graph.symbols.values()
+                if s.file_path == _top688.file_path
+                and s.parent_id is None
+                and not _is_test_file(s.file_path)
+            ]
+            if len(_file_syms688) == 1:
+                out.append(
+                    f"\nsolo file hotspot: {_top688.name} is the only symbol in"
+                    f" {_top688.file_path.rsplit('/', 1)[-1]}"
+                    f" — single-symbol file; consider inlining or merging"
+                )
+
     return out
 
