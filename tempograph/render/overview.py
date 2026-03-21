@@ -1955,30 +1955,35 @@ def _signals_async_oop(
     # S439: Deep inheritance — codebase has 4+ levels of class inheritance.
     # Deep hierarchies hide behavior: the effective method set of a leaf class requires
     # tracing up 4+ classes, and each level is a potential override site.
-    _s439_classes = [s for s in graph.symbols.values() if s.kind.value == "class"]
+    _s439_inherits: dict[str, list[str]] = {}
+    for _e439 in graph.edges:
+        if _e439.kind.value == "inherits":
+            _s439_inherits.setdefault(_e439.source_id, []).append(_e439.target_id)
     _s439_max_depth = 0
     _s439_deepest: str = ""
-    for _cls439 in _s439_classes:
+    for _cls439_id, _parents439 in _s439_inherits.items():
         _depth439 = 0
-        _cur439 = _cls439
-        _seen439: set[str] = {_cls439.id}
-        while _cur439.parent_id and _cur439.parent_id in graph.symbols:
-            _par439 = graph.symbols[_cur439.parent_id]
-            if _par439.kind.value == "class":
-                _depth439 += 1
-                if _par439.id in _seen439:
-                    break
-                _seen439.add(_par439.id)
-                _cur439 = _par439
-            else:
+        _cur439_ids = [_cls439_id]
+        _seen439: set[str] = {_cls439_id}
+        while True:
+            _next439: list[str] = []
+            for _cid439 in _cur439_ids:
+                for _pid439 in _s439_inherits.get(_cid439, []):
+                    if _pid439 not in _seen439:
+                        _next439.append(_pid439)
+                        _seen439.add(_pid439)
+            if not _next439:
                 break
+            _depth439 += 1
+            _cur439_ids = _next439
         if _depth439 > _s439_max_depth:
             _s439_max_depth = _depth439
-            _s439_deepest = _cls439.name
-    if _s439_max_depth >= 4:
+            _cls439_sym = graph.symbols.get(_cls439_id)
+            _s439_deepest = _cls439_sym.name if _cls439_sym else _cls439_id
+    if _s439_max_depth >= 3:
         lines.append(
-            f"deep inheritance: {_s439_max_depth} levels deep (e.g. {_s439_deepest})"
-            f" — override resolution requires tracing up {_s439_max_depth} classes; prefer composition"
+            f"deep inheritance: {_s439_max_depth + 1} levels deep (e.g. {_s439_deepest})"
+            f" — override resolution requires tracing up {_s439_max_depth + 1} classes; prefer composition"
         )
 
     # S243: Framework/library detected — codebase imports a well-known web framework or library.
@@ -2075,6 +2080,21 @@ def _signals_async_oop(
             f" — event-loop semantics apply; avoid introducing blocking calls"
         )
 
+    # S445: Multi-language codebase — source files span 3+ programming languages.
+    # Polyglot codebases require language-specific tooling for each component; a change
+    # that looks simple in one layer may require coordinated changes in every other language.
+    _s445_langs = {
+        graph.files[fp].language.value
+        for fp in graph.files
+        if not _is_test_file(fp)
+        and graph.files[fp].language.value in _CODE_LANGS
+    }
+    if len(_s445_langs) >= 3:
+        _lang_list445 = ", ".join(sorted(_s445_langs)[:5])
+        lines.append(
+            f"multi-language: {len(_s445_langs)} languages in use ({_lang_list445})"
+            f" — cross-language changes need coordinated builds and tooling per layer"
+        )
 
     return lines
 
