@@ -519,6 +519,8 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
         _new_active = [
             fp for fp in _recent_fps
             if fp in graph.files and not _is_test_file(fp) and fp not in _hs_hot_files
+            and "/templates/" not in fp and not fp.startswith("templates/")
+            and "/static/" not in fp and not fp.startswith("static/")
         ]
         if len(_new_active) >= 3:
             _na_names = [fp.rsplit("/", 1)[-1] for fp in sorted(_new_active)[:3]]
