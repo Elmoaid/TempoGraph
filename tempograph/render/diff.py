@@ -917,4 +917,30 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — pipeline change; broken CI blocks all future merges"
         )
 
+    # S302: Large diff — 20+ files changed in this diff.
+    # Large diffs are hard to review and test; blast radius is proportionally wider
+    # and the probability of unintended side effects increases.
+    _s302_total = len(changed_files)
+    if _s302_total >= 20:
+        lines.append(
+            f"large diff: {_s302_total} files changed"
+            f" — hard to review; split into smaller atomic commits if possible"
+        )
+
+    # S308: Docs-only diff — all changed files are documentation (no code impact).
+    # Documentation-only changes are safe to merge without re-running the full test suite
+    # but may still need proofreading and link validation.
+    _s308_doc_exts = {".md", ".rst", ".txt", ".ipynb", ".adoc", ".wiki"}
+    _s308_doc_names = {"README", "CHANGELOG", "CONTRIBUTING", "LICENSE", "HISTORY", "AUTHORS"}
+    _s308_all_docs = all(
+        any(f.lower().endswith(ext) for ext in _s308_doc_exts)
+        or f.rsplit("/", 1)[-1].rsplit(".", 1)[0].upper() in _s308_doc_names
+        for f in changed_files
+    )
+    if changed_files and _s308_all_docs:
+        lines.append(
+            "docs-only diff: all changed files are documentation"
+            " — no code impact; skip full test suite, focus on link/prose review"
+        )
+
     return "\n".join(lines)

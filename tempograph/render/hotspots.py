@@ -1116,4 +1116,33 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 )
                 break
 
+    # S299: Mono-file hotspot — all top-5 hotspot symbols come from the same file.
+    # When a single file monopolises the hotspot list, it's structurally overloaded;
+    # the module has grown past cohesion and needs splitting.
+    if len(scores) >= 3:
+        _top_files299 = [sym.file_path for _, sym in scores[:5]]
+        if len(set(_top_files299)) == 1 and not _is_test_file(_top_files299[0]):
+            _mf_name299 = _top_files299[0].rsplit("/", 1)[-1]
+            lines.append(
+                f"\nmono-file hotspot: all top {len(_top_files299)} hotspots in {_mf_name299}"
+                f" — file monopolises churn; strong split candidate"
+            )
+
+    # S305: Hotspot bottleneck — top hotspot file is imported by 5+ other source files.
+    # A file that is simultaneously high-churn AND imported widely is a systemic risk:
+    # any change to it forces re-evaluation across all its dependents.
+    if scores:
+        _top305_sym = scores[0][1]
+        _top305_fp = _top305_sym.file_path
+        if not _is_test_file(_top305_fp):
+            _importer_files305 = {
+                fp for fp in graph.importers_of(_top305_fp)
+                if not _is_test_file(fp) and fp != _top305_fp
+            }
+            if len(_importer_files305) >= 5:
+                lines.append(
+                    f"\nhotspot bottleneck: {_top305_fp.rsplit('/', 1)[-1]} — top hotspot"
+                    f" imported by {len(_importer_files305)} files; churn ripples widely"
+                )
+
     return "\n".join(lines)  # ALWAYS return here — never inside a conditional block

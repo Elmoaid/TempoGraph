@@ -912,6 +912,78 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — removed features leave orphaned guards; misleading if left in codebase"
         )
 
+    # S298: Dead middleware — middleware_*/interceptor_*/before_*/after_* functions with 0 callers.
+    # Leftover middleware fragments break the mental model of request/response lifecycle;
+    # readers may assume they're active when they're actually bypassed.
+    # Only shown when 2+ such functions found (conf >= 30).
+    _s298_mw_prefixes = (
+        "middleware_", "interceptor_", "before_request", "after_request",
+        "pre_", "post_process", "apply_filter", "handle_request",
+    )
+    _s298_dead_mw = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s298_mw_prefixes)
+    ]
+    if len(_s298_dead_mw) >= 2:
+        _mw_names298 = ", ".join(s.name for s in _s298_dead_mw[:3])
+        if len(_s298_dead_mw) > 3:
+            _mw_names298 += f" +{len(_s298_dead_mw) - 3} more"
+        lines.append(
+            f"dead middleware: {len(_s298_dead_mw)} unused middleware fn(s) ({_mw_names298})"
+            f" — orphaned filters; request lifecycle looks different than it is"
+        )
+
+    # S304: Dead serializers — to_dict/to_json/serialize/marshal methods with 0 callers.
+    # Serializers are usually called by API layers; when APIs change, the old serializer
+    # remains and creates confusion about the canonical representation of data.
+    # Only shown when 2+ such functions found (conf >= 30).
+    _s304_ser_patterns = (
+        "to_dict", "to_json", "to_yaml", "serialize", "marshal",
+        "encode", "to_proto", "to_pb", "as_dict", "dump",
+    )
+    _s304_dead_ser = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower() == p or sym.name.lower().startswith(p + "_") for p in _s304_ser_patterns)
+    ]
+    if len(_s304_dead_ser) >= 2:
+        _ser_names304 = ", ".join(s.name for s in _s304_dead_ser[:3])
+        if len(_s304_dead_ser) > 3:
+            _ser_names304 += f" +{len(_s304_dead_ser) - 3} more"
+        lines.append(
+            f"dead serializers: {len(_s304_dead_ser)} unused serialization fn(s) ({_ser_names304})"
+            f" — stale data representations; may reflect a removed API endpoint"
+        )
+
+    # S310: Dead adapters — adapter_*/converter_*/transformer_*/formatter_* functions with 0 callers.
+    # Adapters are typically tied to specific integration points; when integrations are removed,
+    # adapters become dead weight that implies functionality that no longer exists.
+    # Only shown when 2+ such functions found (conf >= 30).
+    _s310_adapt_prefixes = (
+        "adapt_", "adapter_", "convert_", "converter_", "transform_",
+        "transformer_", "format_", "formatter_", "translate_",
+    )
+    _s310_dead_adapt = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s310_adapt_prefixes)
+    ]
+    if len(_s310_dead_adapt) >= 2:
+        _adapt_names310 = ", ".join(s.name for s in _s310_dead_adapt[:3])
+        if len(_s310_dead_adapt) > 3:
+            _adapt_names310 += f" +{len(_s310_dead_adapt) - 3} more"
+        lines.append(
+            f"dead adapters: {len(_s310_dead_adapt)} unused adapter fn(s) ({_adapt_names310})"
+            f" — removed integrations; implies features that no longer exist"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
