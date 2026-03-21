@@ -431,6 +431,27 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — cross-language change; coordinate testing across all affected language environments"
         )
 
+    # S753: Private-only diff — all changed files touch only private/internal symbols (_prefixed).
+    # When a diff only touches private symbols, the public API is unaffected and callers
+    # need not be updated; flag as internal-only to skip external coordination.
+    if changed_files and normalized:
+        _private_only753 = True
+        for _fp753 in normalized:
+            _fi753 = graph.files.get(_fp753)
+            if _fi753:
+                _top_syms753 = [
+                    graph.symbols[sid] for sid in _fi753.symbols
+                    if sid in graph.symbols and graph.symbols[sid].parent_id is None
+                ]
+                if any(not s.name.startswith("_") for s in _top_syms753):
+                    _private_only753 = False
+                    break
+        if _private_only753 and len(normalized) >= 2:
+            lines.append(
+                f"private-only diff: all {len(normalized)} changed file(s) touch only private/internal symbols"
+                f" — no public API changes; external callers are unaffected"
+            )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 

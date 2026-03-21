@@ -2572,6 +2572,30 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned validation strategy or removed without cleanup"
         )
 
+    # S755: Dead method-only class — unused class whose children are exclusively methods (no instance vars).
+    # Classes with only methods are often namespace groupings or utility collections;
+    # if the class itself is dead, consider converting methods to module-level functions.
+    _dead_static755 = []
+    for _s755 in dead:
+        if _s755.kind.value == "class" and not _is_test_file(_s755.file_path):
+            _children755 = [
+                graph.symbols[cid] for cid in graph.symbols
+                if graph.symbols[cid].parent_id == _s755.id
+            ]
+            if _children755 and all(
+                c.kind.value in ("function", "method", "classmethod", "staticmethod")
+                for c in _children755
+            ):
+                _dead_static755.append(_s755)
+    if _dead_static755:
+        _names755 = ", ".join(s.name for s in _dead_static755[:3])
+        if len(_dead_static755) > 3:
+            _names755 += f" +{len(_dead_static755) - 3} more"
+        lines.append(
+            f"dead static-only class: {len(_dead_static755)} unused class(es) with only class/static methods ({_names755})"
+            f" — namespace classes with no instances; convert methods to module-level functions"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
