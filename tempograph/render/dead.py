@@ -10,7 +10,18 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
         to reduce token output (~47% savings). Pass include_low=True to see all tiers.
     """
     dead = graph.find_dead_code()
-    if not dead:
+
+    # S569: Dead typing file — Python file that only contains typing imports (no indexed symbols)
+    # and has no importers. Pre-computed here so it can fire even when `dead` is empty.
+    _dead_typing_files569 = [
+        fp for fp, fi in graph.files.items()
+        if not _is_test_file(fp)
+        and not list(fi.symbols)
+        and any("typing" in imp.lower() for imp in fi.imports)
+        and not graph.importers_of(fp)
+    ]
+
+    if not dead and not _dead_typing_files569:
         return "No dead code detected — all exported symbols are referenced."
 
     # Score each symbol
@@ -1968,16 +1979,7 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned input guards; callers silently skip these checks; wire up or remove"
         )
 
-    # S569: Dead typing file — Python file that only contains typing imports (no indexed symbols)
-    # and has no importers. Type-alias-only files with no consumers are stale scaffolding
-    # from abandoned API contracts; they create false confidence that types are in use.
-    _dead_typing_files569 = [
-        fp for fp, fi in graph.files.items()
-        if not _is_test_file(fp)
-        and not list(fi.symbols)
-        and any("typing" in imp.lower() for imp in fi.imports)
-        and not graph.importers_of(fp)
-    ]
+    # S569: Dead typing file (computed near top, before early return)
     if _dead_typing_files569:
         _tf_names569 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _dead_typing_files569[:3])
         if len(_dead_typing_files569) > 3:
@@ -1985,6 +1987,30 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
         lines.append(
             f"dead type aliases: {len(_dead_typing_files569)} typing-only file(s) with no importers ({_tf_names569})"
             f" — stale type definitions from refactored APIs; safe to remove after confirming no runtime use"
+        )
+
+    # S575: Dead context manager — unused class with __enter__ and __exit__ dunder methods.
+    # Context managers defined but never instantiated represent abandoned resource management;
+    # their with-block protocol is never invoked and resource cleanup never happens.
+    _cm_dunder575 = frozenset(("__enter__", "__exit__"))
+    _dead_cm575: list = []
+    for _sym575 in graph.symbols.values():
+        if (
+            not _is_test_file(_sym575.file_path)
+            and _sym575.kind.value == "class"
+            and not graph.callers_of(_sym575.id)
+            and not graph.importers_of(_sym575.file_path)
+        ):
+            _children575 = {c.name for c in graph.children_of(_sym575.id)}
+            if _cm_dunder575.issubset(_children575):
+                _dead_cm575.append(_sym575)
+    if _dead_cm575:
+        _cm_names575 = ", ".join(s.name for s in _dead_cm575[:3])
+        if len(_dead_cm575) > 3:
+            _cm_names575 += f" +{len(_dead_cm575) - 3} more"
+        lines.append(
+            f"dead context managers: {len(_dead_cm575)} unused context manager class(es) ({_cm_names575})"
+            f" — __enter__/__exit__ never invoked; resource cleanup never happens; remove or wire up"
         )
 
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")

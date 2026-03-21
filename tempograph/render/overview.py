@@ -2381,6 +2381,35 @@ def _signals_async_oop(
             f" — all execution flows through this file; changes here affect every code path"
         )
 
+    # S565: Large test ratio — test file line count exceeds 2× source file line count.
+    # Over-tested codebases (by line count) often have brittle implementation-coupled tests;
+    # high test volume relative to source signals tests that constrain refactoring more than they enable it.
+    _s565_src = [(fp, fi) for fp, fi in graph.files.items() if not _is_test_file(fp)]
+    _s565_tst = [(fp, fi) for fp, fi in graph.files.items() if _is_test_file(fp)]
+    if len(_s565_src) >= 3 and len(_s565_tst) >= 3:
+        _src_lines565 = sum(fi.line_count for _, fi in _s565_src)
+        _tst_lines565 = sum(fi.line_count for _, fi in _s565_tst)
+        if _src_lines565 > 0 and _tst_lines565 >= _src_lines565 * 2:
+            _ratio565 = round(_tst_lines565 / _src_lines565, 1)
+            lines.append(
+                f"large test ratio: test code is {_ratio565}× source code ({_tst_lines565} vs {_src_lines565} lines)"
+                f" — high test volume may indicate brittle implementation-coupled tests; prefer behavior tests"
+            )
+
+    # S571: No exports — 5+ source files but zero exported (public) symbols detected.
+    # A codebase with no exports is likely a script collection or has accidentally made
+    # everything private; agents can't reliably identify the public API surface.
+    _s571_exported = [
+        sym for sym in graph.symbols.values()
+        if not _is_test_file(sym.file_path) and sym.exported
+    ]
+    _s571_src_count = sum(1 for fp in graph.files if not _is_test_file(fp))
+    if _s571_src_count >= 5 and not _s571_exported:
+        lines.append(
+            f"no exports: {_s571_src_count} source files but 0 exported symbols detected"
+            f" — all symbols are private; agents cannot identify the public API surface"
+        )
+
     return lines
 
 
