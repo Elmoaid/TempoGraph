@@ -429,6 +429,21 @@ def render_overview(graph: Tempo) -> str:
             _ap_line += f", {len(_unused_exp)} unused ({_unused_pct}%)"
         lines.append(_ap_line)
 
+    # S80: Interface/abstract count — how many pure interface/protocol/abstract-class symbols.
+    # Signals codebase abstraction health: 0 interfaces in a 100-class repo = no abstraction layer.
+    # Only shown when project has 5+ classes (smaller repos rarely use abstractions).
+    _class_count = sum(
+        1 for sym in graph.symbols.values()
+        if sym.kind.value == "class" and not _is_test_file(sym.file_path) and sym.exported
+    )
+    if _class_count >= 5:
+        _iface_count = sum(
+            1 for sym in graph.symbols.values()
+            if sym.kind.value == "interface" and not _is_test_file(sym.file_path)
+        )
+        if _iface_count >= 1:
+            lines.append(f"abstractions: {_iface_count} interface(s) across {_class_count} classes")
+
     # Private API leaking: symbols with _ prefix called from external files.
     # Indicates callers depending on implementation details — fragile coupling.
     _private_leaks: list[str] = []
