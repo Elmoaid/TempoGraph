@@ -1359,6 +1359,16 @@ def _build_symbol_block_lines(
                     _age_ann = f" [age: {_days}d]"
         except Exception:
             pass
+    # Callee count annotation: if seed calls >= 5 distinct functions, show [calls: N].
+    # High callee count signals broad side-effects — risky to change.
+    _callee_ann = ""
+    if depth == 0:
+        _callee_ids = {
+            e.target_id for e in graph.edges
+            if e.kind == EdgeKind.CALLS and e.source_id == sym.id
+        }
+        if len(_callee_ids) >= 5:
+            _callee_ann = f" [calls: {len(_callee_ids)}]"
     elif depth >= 1:
         # Hub annotation: deeply-imported utilities used across 15+ files.
         # Tells agents this is a widely-shared symbol — don't expect to find
@@ -1369,7 +1379,18 @@ def _build_symbol_block_lines(
         }
         if len(_hub_caller_files) >= 15:
             _hub_ann = f" [hub: {len(_hub_caller_files)} files]"
-    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann} — {loc}{orbit_note}"]
+    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann}{_callee_ann} — {loc}{orbit_note}"]
+    # Test coverage hint: show which test file(s) directly call this symbol.
+    # If exported and no test callers → warn agents there's no safety net.
+    # Only shown for functions/methods; skipped for classes/modules/constants.
+    if depth == 0 and sym.kind.value in ("function", "method"):
+        _all_callers = graph.callers_of(sym.id)
+        _test_callers = [c for c in _all_callers if _is_test_file(c.file_path)]
+        if _test_callers:
+            _t_files = sorted({c.file_path.rsplit("/", 1)[-1] for c in _test_callers})
+            block_lines.append(f"{indent}  tested: {', '.join(_t_files[:3])}")
+        elif sym.exported:
+            block_lines.append(f"{indent}  no tests — exported but never called from a test file")
     # Container annotation for methods: show parent class with caller count.
     # Helps agents understand the class context of the focused method.
     if depth == 0 and sym.kind.value == "method" and "::" in sym.id:
@@ -1391,6 +1412,33 @@ def _build_symbol_block_lines(
             if _commits:
                 _commit_parts = [f"{c['days_ago']}d \"{c['message']}\"" for c in _commits]
                 block_lines.append(f"{indent}  recent: {', '.join(_commit_parts)}")
+        except Exception:
+            pass
+    # Callee drift: seed is >=30d old but calls things changed in the last 14d.
+    # Flags potential "stale wrapper" — function may not reflect its dependency changes.
+    # Uses file-level age for callees (fast — no per-line git log overhead).
+    if depth == 0 and graph.root:
+        try:
+            from .git import symbol_last_modified_days as _sld_cd  # noqa: PLC0415
+            from .git import file_last_modified_days as _fld_cd    # noqa: PLC0415
+            _seed_days = _sld_cd(graph.root, sym.file_path, sym.line_start)
+            if _seed_days is not None and _seed_days >= 30:
+                _callees_cd = graph.callees_of(sym.id)
+                _drifted: list[tuple[int, str]] = []
+                for _c in _callees_cd[:15]:  # cap to avoid subprocess spam
+                    if _c.file_path == sym.file_path:
+                        continue  # same-file callees usually updated together
+                    _c_days = _fld_cd(graph.root, _c.file_path)
+                    if _c_days is not None and _c_days < 14:
+                        _drifted.append((_c_days, _c.name))
+                if _drifted:
+                    _drifted.sort()  # most recently changed first
+                    _drift_strs = [f"{n} ({d}d)" for d, n in _drifted[:3]]
+                    _drift_overflow = f" +{len(_drifted) - 3} more" if len(_drifted) > 3 else ""
+                    block_lines.append(
+                        f"{indent}  ⚠ callee drift: {len(_drifted)} dep(s) changed after your last edit"
+                        f" — {', '.join(_drift_strs)}{_drift_overflow}"
+                    )
         except Exception:
             pass
     if sym.signature and depth < 2:
