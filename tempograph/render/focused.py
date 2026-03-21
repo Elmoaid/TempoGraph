@@ -1649,6 +1649,37 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
             if _fn_count132 >= 8:
                 lines.append(f"\nsibling count: {_fn_count132} fns in {_prim132.file_path.rsplit('/', 1)[-1]}")
 
+    # S141: Param count — seed function has many parameters (>= 6), which is a design smell.
+    # Too many parameters = violation of single responsibility or missing abstraction.
+    # Extracts count from the signature string via comma-counting heuristic.
+    # Only shown for functions/methods with a non-empty signature.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim141 = _seed_syms[0]
+        if _prim141.kind.value in ("function", "method") and _prim141.signature:
+            _sig141 = _prim141.signature
+            # Extract param list: find content between first ( and last )
+            _p141_open = _sig141.find("(")
+            _p141_close = _sig141.rfind(")")
+            if _p141_open >= 0 and _p141_close > _p141_open:
+                _params141 = _sig141[_p141_open + 1:_p141_close].strip()
+                if _params141 and _params141 not in ("self", "cls"):
+                    # Count commas at depth 0 (skip nested brackets/generics)
+                    _depth141 = 0
+                    _comma_count141 = 0
+                    for _ch141 in _params141:
+                        if _ch141 in "([{<":
+                            _depth141 += 1
+                        elif _ch141 in ")]}>" :
+                            _depth141 -= 1
+                        elif _ch141 == "," and _depth141 == 0:
+                            _comma_count141 += 1
+                    _n_params141 = _comma_count141 + 1
+                    # Adjust for self/cls as first param
+                    if _params141.lstrip().startswith(("self,", "cls,")):
+                        _n_params141 -= 1
+                    if _n_params141 >= 6:
+                        lines.append(f"\nparam count: {_n_params141} — consider a config object or split the function")
+
     # S136: Export ratio — fraction of fn/method symbols in the primary seed's file that are exported.
     # Low ratio (< 30%) = mostly internal module. High ratio (> 80%) = public API file.
     # Helps agents know whether changes leak into the public interface or stay internal.

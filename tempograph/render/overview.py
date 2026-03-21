@@ -1008,6 +1008,23 @@ def render_overview(graph: Tempo) -> str:
         if _s137_avg >= 40:
             lines.append(f"avg fn size: {_s137_avg:.0f} lines — functions are large, consider decomposition")
 
+    # S142: Test coverage gap — source files with no corresponding test file.
+    # Helps agents know which areas of the codebase are "flying blind."
+    # Only shown when test files exist AND >= 30% of source files lack tests.
+    _s142_all_tests = {fp for fp in graph.files if _is_test_file(fp)}
+    _s142_src_fps = [fp for fp in graph.files if not _is_test_file(fp)]
+    if _s142_all_tests and len(_s142_src_fps) >= 5:
+        _s142_untested_fps = [
+            fp for fp in _s142_src_fps
+            if not any(fp.rsplit("/", 1)[-1].rsplit(".", 1)[0] in t for t in _s142_all_tests)
+        ]
+        _s142_gap_pct = int(len(_s142_untested_fps) / len(_s142_src_fps) * 100)
+        if _s142_gap_pct >= 30:
+            lines.append(
+                f"test coverage gap: {len(_s142_untested_fps)}/{len(_s142_src_fps)}"
+                f" source files have no tests ({_s142_gap_pct}%)"
+            )
+
     # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)
     if noisy:
