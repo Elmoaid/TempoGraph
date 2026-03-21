@@ -22250,3 +22250,413 @@ class TestDeadCLICommandsS444:
         assert "dead CLI commands" not in out, (
             f"'dead CLI commands' must not appear when cmd fn is called; got:\n{out}"
         )
+
+
+class TestMultiLanguageOverviewS445:
+    """S445: Multi-language codebase (3+ languages) emits the signal."""
+
+    def test_multi_language_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def run(): pass\n")
+        (tmp_path / "utils.ts").write_text("export function helper(): void {}\n")
+        (tmp_path / "server.go").write_text("package main\nfunc main() {}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "multi-language" in out, (
+            f"Expected 'multi-language' signal for py+ts+go codebase; got:\n{out}"
+        )
+
+    def test_multi_language_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def run(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "multi-language" not in out, (
+            f"'multi-language' must not appear for single-language codebase; got:\n{out}"
+        )
+
+
+class TestGlobalStateMutationS446:
+    """S446: Function that mutates global state emits signal in focused output."""
+
+    def test_global_state_mutation_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "state.py").write_text(
+            "def set_global_config(key, value):\n"
+            "    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "set_global_config")
+        assert "global state mutation" in out, (
+            f"Expected 'global state mutation' signal; got:\n{out}"
+        )
+
+    def test_global_state_mutation_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def compute_sum(a, b):\n    return a + b\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "compute_sum")
+        assert "global state mutation" not in out, (
+            f"'global state mutation' must not appear for pure fn; got:\n{out}"
+        )
+
+
+class TestConfigOnlyDiffS447:
+    """S447: Config-only diff emits signal when all changed files are config."""
+
+    def test_config_only_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["settings.py", "config.py"])
+        assert "config-only diff" in out, (
+            f"Expected 'config-only diff' signal when only config files change; got:\n{out}"
+        )
+
+    def test_config_only_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["settings.py", "app.py"])
+        assert "config-only diff" not in out, (
+            f"'config-only diff' must not appear when non-config files also change; got:\n{out}"
+        )
+
+
+class TestUntestedHotspotS448:
+    """S448: Top hotspot file with no test file emits signal."""
+
+    def test_untested_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "engine.py").write_text(
+            "class Engine:\n"
+            "    def process(self, data): pass\n"
+            "    def transform(self, data): pass\n"
+            "    def validate(self, data): pass\n"
+        )
+        for i in range(4):
+            (tmp_path / f"service_{i}.py").write_text(
+                f"from engine import Engine\ndef run_{i}(): Engine().process(None)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "untested hotspot" in out, (
+            f"Expected 'untested hotspot' signal for engine.py with no test file; got:\n{out}"
+        )
+
+    def test_untested_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "engine.py").write_text(
+            "def process(data): pass\n"
+        )
+        (tmp_path / "test_engine.py").write_text(
+            "from engine import process\ndef test_process(): process(None)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "untested hotspot" not in out, (
+            f"'untested hotspot' must not appear when test_engine.py exists; got:\n{out}"
+        )
+
+
+class TestMultiPackageBlastS449:
+    """S449: Blast target imported from 3+ distinct directories emits signal."""
+
+    def test_multi_package_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text("def shared(): pass\n")
+        pkg_a = tmp_path / "pkg_a"
+        pkg_b = tmp_path / "pkg_b"
+        pkg_c = tmp_path / "pkg_c"
+        for pkg in (pkg_a, pkg_b, pkg_c):
+            pkg.mkdir()
+            (pkg / "module.py").write_text(
+                "import sys\nsys.path.insert(0, '..')\nfrom core import shared\ndef run(): shared()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "core.py")
+        assert "multi-package blast" in out, (
+            f"Expected 'multi-package blast' signal for core.py in 3 packages; got:\n{out}"
+        )
+
+    def test_multi_package_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text("def shared(): pass\n")
+        (tmp_path / "service.py").write_text("from core import shared\ndef run(): shared()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "core.py")
+        assert "multi-package blast" not in out, (
+            f"'multi-package blast' must not appear with only 1 importer dir; got:\n{out}"
+        )
+
+
+class TestDeadErrorHandlersS450:
+    """S450: Unused handle_error_*/on_error_* functions emit the signal."""
+
+    def test_dead_error_handlers_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "handlers.py").write_text(
+            "def handle_error_timeout():\n    pass\n\n"
+            "def on_error_validation():\n    pass\n\n"
+            "def handle_exception_network():\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead error handlers" in out, (
+            f"Expected 'dead error handlers' signal for unused error handler fns; got:\n{out}"
+        )
+
+    def test_dead_error_handlers_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "handlers.py").write_text(
+            "def handle_error_timeout():\n    pass\n"
+        )
+        (tmp_path / "runner.py").write_text(
+            "from handlers import handle_error_timeout\n\ndef run():\n    handle_error_timeout()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead error handlers" not in out, (
+            f"'dead error handlers' must not appear when error handler is called; got:\n{out}"
+        )
+
+
+class TestProtocolMethodFocusedS451:
+    """S451: Protocol/interface method emits signal when focused."""
+
+    def test_protocol_method_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "base.py").write_text(
+            "class BaseProtocol:\n"
+            "    def process(self, data): raise NotImplementedError\n"
+        )
+        (tmp_path / "impl_a.py").write_text(
+            "from base import BaseProtocol\n\n"
+            "class ImplA(BaseProtocol):\n"
+            "    def process(self, data): return data.upper()\n"
+        )
+        (tmp_path / "impl_b.py").write_text(
+            "from base import BaseProtocol\n\n"
+            "class ImplB(BaseProtocol):\n"
+            "    def process(self, data): return data.lower()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "BaseProtocol.process")
+        assert "protocol method" in out, (
+            f"Expected 'protocol method' signal for BaseProtocol.process; got:\n{out}"
+        )
+
+    def test_protocol_method_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def calculate(x, y):\n    return x + y\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "calculate")
+        assert "protocol method" not in out, (
+            f"'protocol method' must not appear for plain function; got:\n{out}"
+        )
+
+
+class TestTestThinOverviewS452:
+    """S452: Test-thin codebase (test LOC < 20% of source LOC) emits signal."""
+
+    def test_test_thin_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 10 source files each with 10 functions (600+ source lines), 1 tiny test file
+        for i in range(10):
+            lines_i = "\n".join(
+                f"def func_{j}_{i}(x):\n    a = x + {j}\n    b = a * {j}\n    c = b - {j}\n    d = c // ({j} + 1)\n    return d\n"
+                for j in range(10)
+            )
+            (tmp_path / f"module_{i}.py").write_text(lines_i + "\n")
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_basic.py").write_text(
+            "def test_smoke(): assert 1 == 1\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "test-thin" in out, (
+            f"Expected 'test-thin' signal for low test coverage; got:\n{out}"
+        )
+
+    def test_test_thin_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # Only 2 source files — below 500-line threshold
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "test-thin" not in out, (
+            f"'test-thin' must not appear for small codebase; got:\n{out}"
+        )
+
+
+class TestMiddlewareBlastS453:
+    """S453: Middleware blast target emits signal."""
+
+    def test_middleware_blast_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "auth_middleware.py").write_text(
+            "def authenticate(request):\n    return True\n"
+        )
+        (tmp_path / "api.py").write_text(
+            "from auth_middleware import authenticate\n\n"
+            "def get_user(): return authenticate({})\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "auth_middleware.py")
+        assert "middleware blast" in out, (
+            f"Expected 'middleware blast' signal for auth_middleware.py; got:\n{out}"
+        )
+
+    def test_middleware_blast_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper(x): return x * 2\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef main(): return helper(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "middleware blast" not in out, (
+            f"'middleware blast' must not appear for non-middleware file; got:\n{out}"
+        )
+
+
+class TestAuthSecurityDiffS454:
+    """S454: Auth/security diff emits signal when auth files changed."""
+
+    def test_auth_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "auth_middleware.py"])
+        assert "auth/security change" in out, (
+            f"Expected 'auth/security change' signal when auth file in diff; got:\n{out}"
+        )
+
+    def test_auth_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py"])
+        assert "auth/security change" not in out, (
+            f"'auth/security change' must not appear when no auth files change; got:\n{out}"
+        )
+
+
+class TestSharedFixtureHotspotS455:
+    """S455: conftest.py as top hotspot emits fixture hotspot signal."""
+
+    def test_fixture_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "conftest.py").write_text(
+            "import pytest\n\n"
+            "@pytest.fixture\ndef db(): return {}\n\n"
+            "@pytest.fixture\ndef client(): return {}\n"
+        )
+        for i in range(5):
+            (tmp_path / f"test_module_{i}.py").write_text(
+                f"from conftest import db, client\n"
+                f"def test_{i}(db, client): assert db is not None\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "fixture hotspot" in out, (
+            f"Expected 'fixture hotspot' signal for conftest.py; got:\n{out}"
+        )
+
+    def test_fixture_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "fixture hotspot" not in out, (
+            f"'fixture hotspot' must not appear for non-fixture file; got:\n{out}"
+        )
+
+
+class TestDeadFormattersS456:
+    """S456: Unused format_*/pretty_* functions emit dead formatters signal."""
+
+    def test_dead_formatters_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "display.py").write_text(
+            "def format_user_output(user):\n    pass\n\n"
+            "def format_error_message(err):\n    pass\n\n"
+            "def pretty_print_table(rows):\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead formatters" in out, (
+            f"Expected 'dead formatters' signal for unused display fns; got:\n{out}"
+        )
+
+    def test_dead_formatters_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "display.py").write_text(
+            "def format_user_output(user):\n    return str(user)\n"
+        )
+        (tmp_path / "runner.py").write_text(
+            "from display import format_user_output\ndef run(u): format_user_output(u)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead formatters" not in out, (
+            f"'dead formatters' must not appear when formatter is called; got:\n{out}"
+        )

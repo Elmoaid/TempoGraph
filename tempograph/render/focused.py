@@ -2592,6 +2592,50 @@ def _signals_focused_fn_advanced(
                     f" — behavior is caller-determined; each callsite is an independent contract"
                 )
 
+    # S446: Global state mutation — focused function modifies a global or class-level variable.
+    # Functions that mutate global state are invisible dependencies: every callsite shares
+    # the same mutable state, making concurrent use and isolated testing impossible.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim446 = next((s for s in _seed_syms if s.kind.value in ("function", "method")), None)
+        if _prim446:
+            _global_mutation_keywords446 = (
+                "global_", "state_", "cache_", "config_", "registry_", "singleton_", "shared_",
+            )
+            _is_mutator446 = any(
+                kw in _prim446.name.lower()
+                for kw in ("set_", "update_", "reset_", "clear_", "flush_", "init_", "register_")
+            )
+            _touches_global446 = any(
+                kw in _prim446.name.lower()
+                for kw in _global_mutation_keywords446
+            )
+            if _is_mutator446 and _touches_global446:
+                lines.append(
+                    f"\nglobal state mutation: {_prim446.name} modifies shared state"
+                    f" — concurrent callers see each other's side effects; isolate state before refactoring"
+                )
+
+    # S451: Protocol/interface method — focused symbol is a method in a Protocol or ABC subclass.
+    # Protocol methods define a contract that multiple concrete types must satisfy;
+    # changing the signature breaks every conforming type even if they're not in the same repo.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim451 = next((s for s in _seed_syms if s.kind.value == "method"), None)
+        if _prim451 and _prim451.parent_id:
+            _parent451 = graph.symbols.get(_prim451.parent_id)
+            _protocol_keywords451 = ("protocol", "interface", "abc", "abstract", "mixin", "base")
+            if _parent451 and any(kw in _parent451.name.lower() for kw in _protocol_keywords451):
+                _all_impls451 = [
+                    s for s in graph.symbols.values()
+                    if s.name == _prim451.name and s.kind.value == "method"
+                    and s.id != _prim451.id and s.parent_id != _prim451.parent_id
+                ]
+                if _all_impls451:
+                    lines.append(
+                        f"\nprotocol method: {_prim451.name} is defined in {_parent451.name}"
+                        f" with {len(_all_impls451)} known implementation(s)"
+                        f" — signature changes break all conforming types; update every implementation"
+                    )
+
     # S350: Orphaned symbol — focused symbol has 0 callers and the file is not imported anywhere.
     # Zero-caller symbols in unimported files may be dead code that was never wired up
     # during a refactor; modifying them has no effect unless the file is imported first.
