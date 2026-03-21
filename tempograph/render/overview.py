@@ -2795,6 +2795,20 @@ def _signals_async_oop(
     elif _src_syms697 >= 5 and _test_syms697 == 0:
         pass  # covered by S667 (no tests detected)
 
+    # S703: Empty source files — 2+ non-test source files with no exported symbols.
+    # Files that define no symbols are placeholder stubs, empty modules, or leftover scaffolding;
+    # they add noise to import paths and confuse agents trying to understand the codebase.
+    _empty_src703 = [
+        fp for fp in graph.files
+        if not _is_test_file(fp)
+        and not any(s.file_path == fp for s in graph.symbols.values())
+    ]
+    if len(_empty_src703) >= 2:
+        lines.append(
+            f"empty source files: {len(_empty_src703)} source file(s) define no symbols"
+            f" — stub files or scaffolding; remove or populate before continuing"
+        )
+
     return lines
 
 

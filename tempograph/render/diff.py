@@ -328,6 +328,15 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
                 f" — config/infra change only; no logic modifications in this diff"
             )
 
+    # S705: Single-file diff — diff spans exactly 1 file.
+    # A one-file diff is the tightest possible change; it's easy to review and low risk,
+    # but if that file is widely imported, the impact can still be large.
+    if len(changed_files) == 1:
+        lines.append(
+            f"single-file diff: only {changed_files[0].rsplit('/', 1)[-1]} changed"
+            f" — focused change; verify blast radius of this file before merging"
+        )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
