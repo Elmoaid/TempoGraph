@@ -11242,3 +11242,103 @@ class TestOverviewBarrelFiles:
         assert "barrel files" not in out, (
             f"'barrel files' must not appear when no file imports 5+ modules; got:\n{out}"
         )
+
+
+class TestDeadLargestFn:
+    """S148: Dead code — 'largest dead fn: NL fn_name in file.py — consider removing'."""
+
+    def test_large_dead_fn_flagged(self, tmp_path):
+        """Dead function >= 20 lines → 'largest dead fn:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        # Large dead function (25 lines)
+        big_fn = "def abandoned_feature(x, y):\n"
+        big_fn += "    result = 0\n"
+        big_fn += "".join(f"    result += x * {i}\n" for i in range(20))
+        big_fn += "    return result\n"
+        (tmp_path / "old_code.py").write_text(big_fn)
+        (tmp_path / "caller.py").write_text("# nothing uses old_code\ndef main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "largest dead fn" in out, (
+            f"Expected 'largest dead fn' for 25-line dead function; got:\n{out}"
+        )
+
+    def test_large_dead_fn_absent_for_small_dead(self, tmp_path):
+        """Dead function < 20 lines → 'largest dead fn:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        (tmp_path / "tiny.py").write_text("def unused():\n    return 42\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "largest dead fn" not in out, (
+            f"'largest dead fn' must not appear for small dead functions; got:\n{out}"
+        )
+
+
+class TestDiffMixedConcern:
+    """S149: Diff — 'mixed concern: N source + M test files — consider splitting'."""
+
+    def test_mixed_concern_shown(self, tmp_path):
+        """Diff with both source and test files → 'mixed concern:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "service.py").write_text("def process(x):\n    return x\n")
+        (tmp_path / "test_service.py").write_text(
+            "from service import process\ndef test_process():\n    assert process(1) == 1\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["service.py", "test_service.py"])
+        assert "mixed concern" in out, (
+            f"Expected 'mixed concern' when diff has src+test files; got:\n{out}"
+        )
+
+    def test_mixed_concern_absent_for_src_only(self, tmp_path):
+        """Diff with only source files → 'mixed concern:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "a.py").write_text("def fn_a():\n    pass\n")
+        (tmp_path / "b.py").write_text("def fn_b():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["a.py", "b.py"])
+        assert "mixed concern" not in out, (
+            f"'mixed concern' must not appear for source-only diff; got:\n{out}"
+        )
+
+
+class TestFocusClassSize:
+    """S150: Focus — 'class size: N methods — large class, consider decomposition'."""
+
+    def test_large_class_flagged(self, tmp_path):
+        """Class with >= 8 methods → 'class size:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        methods = "\n".join(
+            f"    def method_{i}(self):\n        return {i}" for i in range(10)
+        )
+        (tmp_path / "big_class.py").write_text(f"class BigClass:\n{methods}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "BigClass")
+        assert "class size" in out, (
+            f"Expected 'class size' for 10-method class; got:\n{out}"
+        )
+
+    def test_small_class_not_flagged(self, tmp_path):
+        """Class with < 8 methods → 'class size:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        methods = "\n".join(
+            f"    def method_{i}(self):\n        return {i}" for i in range(4)
+        )
+        (tmp_path / "small_class.py").write_text(f"class SmallClass:\n{methods}\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "SmallClass")
+        assert "class size" not in out, (
+            f"'class size' must not appear for 4-method class; got:\n{out}"
+        )
