@@ -11962,3 +11962,240 @@ class TestRunServer:
         monkeypatch.setattr(srv_mod.mcp, "run", lambda: called.append(True))
         srv_mod.run_server()
         assert called == [True]
+
+
+# ---------------------------------------------------------------------------
+# S167 — orphan files (overview)
+# ---------------------------------------------------------------------------
+class TestOverviewOrphanFiles:
+    def test_orphan_files_shown(self, tmp_path):
+        """S167: orphan files shown when 2+ isolated source files exist."""
+        from tempograph import build_graph
+        from tempograph.render.overview import render_overview
+
+        # These two files are never imported or called from anywhere
+        (tmp_path / "orphan_a.py").write_text("def isolated_a(): pass\n")
+        (tmp_path / "orphan_b.py").write_text("def isolated_b(): pass\n")
+        # One connected file to avoid trivial repo
+        (tmp_path / "hub.py").write_text("def shared(): pass\n")
+        (tmp_path / "caller.py").write_text(
+            "from hub import shared\ndef use(): shared()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "orphan files" in out, f"'orphan files' expected; got:\n{out}"
+
+    def test_orphan_files_absent_when_all_connected(self, tmp_path):
+        """S167: orphan files not shown when all files are imported."""
+        from tempograph import build_graph
+        from tempograph.render.overview import render_overview
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "main.py").write_text(
+            "from utils import helper\ndef run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "orphan files" not in out, f"'orphan files' must not appear; got:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# S168 — large fn (focused)
+# ---------------------------------------------------------------------------
+class TestFocusedLargeFn:
+    def test_large_fn_shown(self, tmp_path):
+        """S168: large fn shown when focused symbol is >= 50 lines and largest in file."""
+        from tempograph import build_graph
+        from tempograph.render.focused import render_focused
+
+        # Write a 60-line function
+        body = "def big_function():\n" + "    x = 1\n" * 58 + "    return x\n"
+        (tmp_path / "module.py").write_text(body)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "big_function")
+        assert "large fn" in out, f"'large fn' expected; got:\n{out}"
+
+    def test_large_fn_absent_for_small_fn(self, tmp_path):
+        """S168: large fn not shown for small functions."""
+        from tempograph import build_graph
+        from tempograph.render.focused import render_focused
+
+        (tmp_path / "module.py").write_text("def small_fn(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "small_fn")
+        assert "large fn" not in out, f"'large fn' must not appear; got:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# S169 — entry point change (diff)
+# ---------------------------------------------------------------------------
+class TestDiffEntryPointChange:
+    def test_entry_point_shown(self, tmp_path):
+        """S169: entry point change shown when main.py is in the diff."""
+        from tempograph import build_graph
+        from tempograph.render.diff import render_diff_context
+
+        (tmp_path / "main.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["main.py"])
+        assert "entry point change" in out, f"'entry point change' expected; got:\n{out}"
+
+    def test_entry_point_absent_for_non_entry(self, tmp_path):
+        """S169: entry point change not shown for regular source files."""
+        from tempograph import build_graph
+        from tempograph.render.diff import render_diff_context
+
+        (tmp_path / "logic.py").write_text("def compute(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["logic.py"])
+        assert "entry point change" not in out, (
+            f"'entry point change' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S170 — velocity spike (hotspots)
+# ---------------------------------------------------------------------------
+class TestHotspotsVelocitySpike:
+    def test_velocity_spike_shown(self, tmp_path):
+        """S170: velocity spike shown when top file velocity is 3x+ median."""
+        import subprocess, time
+        from tempograph import build_graph
+        from tempograph.render.hotspots import render_hotspots
+
+        subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True, capture_output=True)
+
+        # Create stable files
+        (tmp_path / "stable_a.py").write_text("def fn_a(): pass\n")
+        (tmp_path / "stable_b.py").write_text("def fn_b(): pass\n")
+        (tmp_path / "stable_c.py").write_text("def fn_c(): pass\n")
+        subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+
+        # Commit the hot file many times in quick succession
+        hot = tmp_path / "hot.py"
+        hot.write_text("def hot_fn(): pass\n")
+        for i in range(8):
+            hot.write_text(f"def hot_fn(): return {i}\n")
+            subprocess.run(["git", "add", "hot.py"], cwd=str(tmp_path), check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", f"churn {i}"], cwd=str(tmp_path), check=True, capture_output=True)
+
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "velocity spike" in out, f"'velocity spike' expected; got:\n{out}"
+
+    def test_velocity_spike_absent_when_uniform(self, tmp_path):
+        """S170: velocity spike not shown when all files have similar velocity."""
+        import subprocess
+        from tempograph import build_graph
+        from tempograph.render.hotspots import render_hotspots
+
+        subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True, capture_output=True)
+
+        for name in ["alpha.py", "beta.py", "gamma.py"]:
+            (tmp_path / name).write_text(f"def fn(): pass\n")
+        subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "all"], cwd=str(tmp_path), check=True, capture_output=True)
+
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "velocity spike" not in out, (
+            f"'velocity spike' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S171 — indirect blast (blast)
+# ---------------------------------------------------------------------------
+class TestBlastIndirect:
+    def test_indirect_blast_shown(self, tmp_path):
+        """S171: indirect blast shown when 5+ files are 2 hops away."""
+        from tempograph import build_graph
+        from tempograph.render.blast import render_blast_radius
+
+        # core.py <- middleware_*.py <- consumer_*.py
+        (tmp_path / "core.py").write_text("def api(): pass\n")
+        for i in range(3):
+            (tmp_path / f"middleware_{i}.py").write_text(
+                f"from core import api\ndef mw_{i}(): api()\n"
+            )
+        for i in range(6):
+            mid_idx = i % 3
+            (tmp_path / f"consumer_{i}.py").write_text(
+                f"from middleware_{mid_idx} import mw_{mid_idx}\n"
+                f"def use_{i}(): mw_{mid_idx}()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "core.py")
+        assert "indirect blast" in out, f"'indirect blast' expected; got:\n{out}"
+
+    def test_indirect_blast_absent_when_shallow(self, tmp_path):
+        """S171: indirect blast not shown when fewer than 5 indirect importers."""
+        from tempograph import build_graph
+        from tempograph.render.blast import render_blast_radius
+
+        (tmp_path / "core.py").write_text("def api(): pass\n")
+        (tmp_path / "consumer.py").write_text(
+            "from core import api\ndef use(): api()\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from consumer import use\ndef main(): use()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "core.py")
+        assert "indirect blast" not in out, (
+            f"'indirect blast' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S172 — dead classes (dead)
+# ---------------------------------------------------------------------------
+class TestDeadClasses:
+    def test_dead_class_shown(self, tmp_path):
+        """S172: dead classes shown when an entire class and its methods are unused."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+
+        # Class with methods that are never called
+        (tmp_path / "legacy.py").write_text(
+            "class OldFeature:\n"
+            "    def method_a(self): return 1\n"
+            "    def method_b(self): return 2\n"
+            "    def method_c(self): return 3\n"
+        )
+        # Unrelated live file so repo isn't trivial
+        (tmp_path / "active.py").write_text(
+            "class Live:\n"
+            "    def run(self): return 'ok'\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from active import Live\ndef main(): Live().run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead classes" in out, f"'dead classes' expected; got:\n{out}"
+
+    def test_dead_class_absent_when_class_used(self, tmp_path):
+        """S172: dead classes not shown when the class is instantiated."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+
+        (tmp_path / "service.py").write_text(
+            "class Active:\n"
+            "    def run(self): return 1\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from service import Active\ndef main(): Active().run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead classes" not in out, (
+            f"'dead classes' must not appear; got:\n{out}"
+        )

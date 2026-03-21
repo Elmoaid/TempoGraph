@@ -400,6 +400,25 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             _s160_str += f" +{len(_s160_new_syms) - 3} more"
         lines.append(f"new symbols: {len(_s160_new_syms)} exported fns/classes with 0 callers ({_s160_str})")
 
+    # S169: Entry point change — the diff includes an application entry point file.
+    # Entry points are user-facing; changes here are immediately visible to end users.
+    # Only shown when 1+ entry point filename is among the changed files.
+    _s169_entry_stems = {
+        "main", "app", "index", "manage", "cli", "server", "run",
+        "wsgi", "asgi", "__main__", "start", "entrypoint",
+    }
+    _s169_entry_files = [
+        fp for fp in normalized
+        if fp.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() in _s169_entry_stems
+        and not _is_test_file(fp)
+    ]
+    if _s169_entry_files:
+        _s169_str = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s169_entry_files[:3])
+        lines.append(
+            f"entry point change: {_s169_str}"
+            f" — user-facing file(s) modified, immediate user impact"
+        )
+
     # S163: Caller update needed — symbols in the diff have callers in files NOT in the diff.
     # These external call sites may need updating after the diff's logic change.
     # Only shown when 3+ distinct external caller files exist.

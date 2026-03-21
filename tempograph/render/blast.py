@@ -436,6 +436,21 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — package entry point, changes affect all importers"
             )
 
+    # S171: Indirect blast — files that are 2 hops away via importers (importers of importers).
+    # Changing this file ripples to direct importers AND to their importers.
+    # Only shown when 5+ distinct 2nd-hop importer files exist.
+    _s171_direct = {i for i in graph.importers_of(file_path) if i in graph.files and i != file_path}
+    _s171_indirect: set[str] = set()
+    for _dir171 in _s171_direct:
+        for _ind171 in graph.importers_of(_dir171):
+            if _ind171 in graph.files and _ind171 != file_path and _ind171 not in _s171_direct:
+                _s171_indirect.add(_ind171)
+    if len(_s171_indirect) >= 5:
+        lines.append(
+            f"indirect blast: {len(_s171_indirect)} files 2 hops away via importers"
+            f" — change propagates further than direct importers"
+        )
+
     # S165: Call depth — BFS through CALLS edges from blast target, longest chain depth.
     # Deep call chains (>= 4 hops) amplify risk: a change propagates through many stack frames.
     # Only shown when BFS from any symbol in the target file reaches depth >= 4.

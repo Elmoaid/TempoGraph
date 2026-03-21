@@ -1118,6 +1118,46 @@ def render_overview(graph: Tempo) -> str:
             f" — changes here have wide blast radius"
         )
 
+    # S167: Orphan files — source files with 0 importers and 0 external callers to any symbol.
+    # Isolated files are likely dead entry points or abandoned modules.
+    # Only shown when 2+ non-entry-point source files are fully isolated.
+    _s167_entry_names = {
+        "main", "app", "index", "manage", "cli", "server", "run", "wsgi", "asgi",
+        "setup", "conftest", "__main__",
+    }
+    _s167_orphans: list[str] = []
+    for _fp167 in graph.files:
+        if _is_test_file(_fp167):
+            continue
+        _stem167 = _fp167.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+        if _stem167 in _s167_entry_names:
+            continue
+        _has_importers167 = any(
+            i in graph.files and not _is_test_file(i)
+            for i in graph.importers_of(_fp167)
+        )
+        if _has_importers167:
+            continue
+        _has_callers167 = any(
+            len([
+                c for c in graph.callers_of(s.id)
+                if c.file_path != _fp167
+            ]) > 0
+            for s in graph.symbols.values()
+            if s.file_path == _fp167
+        )
+        if not _has_callers167:
+            _s167_orphans.append(_fp167)
+    if len(_s167_orphans) >= 2:
+        _s167_names = [fp.rsplit("/", 1)[-1] for fp in _s167_orphans[:3]]
+        _s167_str = ", ".join(_s167_names)
+        if len(_s167_orphans) > 3:
+            _s167_str += f" +{len(_s167_orphans) - 3} more"
+        lines.append(
+            f"orphan files: {len(_s167_orphans)} isolated files ({_s167_str})"
+            f" — not imported or called from anywhere"
+        )
+
     # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)
     if noisy:
