@@ -676,4 +676,23 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — check for transitive breaking changes or security advisories"
         )
 
+    # S229: Security-sensitive change — diff includes files with security-related names.
+    # Auth, crypto, token, and permission files are high-risk; changes need careful review.
+    # Only shown when 1+ diff file name matches security-sensitive patterns.
+    _s229_sec_patterns = (
+        "auth", "crypto", "password", "token", "secret", "permission", "access",
+        "login", "session", "jwt", "oauth", "ssl", "cert", "key",
+    )
+    _s229_sec_files = [
+        fp for fp in list(normalized) + [f for f in changed_files if f not in normalized]
+        if any(pat in fp.rsplit("/", 1)[-1].lower() for pat in _s229_sec_patterns)
+    ]
+    if _s229_sec_files:
+        _sec_names = [fp.rsplit("/", 1)[-1] for fp in _s229_sec_files[:3]]
+        _sec_str = ", ".join(_sec_names)
+        lines.append(
+            f"security-sensitive change: {_sec_str} in diff"
+            f" — auth/crypto/token files require careful review"
+        )
+
     return "\n".join(lines)

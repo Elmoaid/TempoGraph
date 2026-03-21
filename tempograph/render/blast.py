@@ -631,6 +631,15 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — no production code depends on this; safe to modify independently"
         )
 
+    # S231: Package init blast — blast target is an __init__.py file.
+    # __init__.py re-exports symbols for the entire package; all package importers are affected.
+    # Only shown when blast file is an __init__.py.
+    if file_path.rsplit("/", 1)[-1] in ("__init__.py", "__init__.ts", "__init__.js"):
+        lines.append(
+            f"package init blast: {file_path} is a package init"
+            f" — all importers of the package are affected by changes here"
+        )
+
     if not importers and not external_callers and not render_targets:
         lines.append("No external dependencies found — safe to modify in isolation.")
 
