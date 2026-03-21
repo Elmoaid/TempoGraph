@@ -2223,5 +2223,24 @@ def _collect_hotspots_signals(
                 f" — large hotspot function; extract sub-functions to reduce complexity"
             )
 
+    # S712: Fan-out hotspot — top hotspot calls more symbols than it has callers.
+    # A hotspot that calls more things than it receives calls from is a dependency accumulator;
+    # it may be a "god function" that orchestrates too many responsibilities.
+    if scores and scores[0]:
+        _top712 = scores[0][1]
+        if (
+            _top712 is not None
+            and not _is_test_file(_top712.file_path)
+            and _top712.kind.value in ("function", "method")
+        ):
+            _callers712 = graph.callers_of(_top712.id)
+            _callees712 = graph.callees_of(_top712.id)
+            if len(_callees712) > len(_callers712) >= 1:
+                out.append(
+                    f"\nfan-out hotspot: {_top712.name} calls {len(_callees712)}"
+                    f" but is called by only {len(_callers712)}"
+                    f" — dependency accumulator; verify it's not doing too much"
+                )
+
     return out
 

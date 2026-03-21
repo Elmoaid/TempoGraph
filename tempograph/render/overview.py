@@ -2809,6 +2809,23 @@ def _signals_async_oop(
             f" — stub files or scaffolding; remove or populate before continuing"
         )
 
+    # S709: High file-per-symbol ratio — avg >3 source files per exported symbol.
+    # Too many micro-files with few symbols each increases cognitive overhead for navigation;
+    # consolidating logically related symbols reduces import path complexity.
+    _src_files709 = [fp for fp in graph.files if not _is_test_file(fp)]
+    _src_syms709 = sum(
+        1 for s in graph.symbols.values()
+        if not _is_test_file(s.file_path) and s.parent_id is None
+        and s.kind.value not in ("unknown", "module")
+    )
+    if len(_src_files709) >= 4 and _src_syms709 > 0:
+        _ratio709 = len(_src_files709) / _src_syms709
+        if _ratio709 > 3.0:
+            lines.append(
+                f"micro-files: {len(_src_files709)} source files with only {_src_syms709} symbols"
+                f" ({_ratio709:.1f} files/symbol) — over-fragmented; consider consolidating thin files"
+            )
+
     return lines
 
 
