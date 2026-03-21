@@ -1656,6 +1656,18 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — changes here cannot be regression-tested; add tests before modifying"
         )
 
+    # S608: High-churn name pattern — blast target name suggests frequently-modified infrastructure.
+    # Files named with routing, handler, controller, or middleware suffixes/prefixes change often
+    # as they sit at integration boundaries; blast radius changes here are high-risk.
+    _stem608 = _fp589.rsplit("/", 1)[-1].lower()
+    _churn_markers608 = ("handler", "router", "route", "controller", "middleware", "dispatch",
+                         "gateway", "proxy", "adapter", "bridge")
+    if any(m in _stem608 for m in _churn_markers608):
+        lines.append(
+            f"high-churn pattern: {file_path.rsplit('/', 1)[-1]} matches a high-churn naming pattern"
+            f" — integration-boundary files change frequently; expect blast-radius changes often"
+        )
+
     return "\n".join(lines)
 
 

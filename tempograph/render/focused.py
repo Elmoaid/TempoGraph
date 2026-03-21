@@ -3157,6 +3157,17 @@ def _signals_focused_fn_advanced(
                     f" are in legacy/compat files — symbol may be on a deprecation path; mark or schedule removal"
                 )
 
+    # S606: Large symbol — focused symbol spans 50+ lines of code.
+    # Very long functions or classes are harder to understand, test, and modify;
+    # they accumulate unrelated logic and have higher defect density.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim606 = _seed_syms[0]
+        if not _is_test_file(_prim606.file_path) and _prim606.line_count >= 50:
+            lines.append(
+                f"\nlarge symbol: {_prim606.name} spans {_prim606.line_count} lines"
+                f" — long symbols accumulate unrelated logic; consider splitting into smaller units"
+            )
+
     return lines
 
 
