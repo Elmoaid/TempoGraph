@@ -2826,6 +2826,28 @@ def _signals_async_oop(
                 f" ({_ratio709:.1f} files/symbol) — over-fragmented; consider consolidating thin files"
             )
 
+    # S715: Hub file — a single source file is imported by >40% of all other source files.
+    # Hub files are architectural bottlenecks; changes to them propagate widely and can break
+    # many consumers simultaneously. They often need careful versioning and change control.
+    _src_files715 = [
+        fp for fp in graph.files
+        if not _is_test_file(fp) and fp.endswith(".py")
+    ]
+    if len(_src_files715) >= 4:
+        for _fp715 in _src_files715:
+            _importers715 = [
+                f for f in graph.importers_of(_fp715)
+                if f != _fp715 and not _is_test_file(f)
+            ]
+            _ratio715 = len(_importers715) / max(len(_src_files715) - 1, 1)
+            if _ratio715 > 0.40:
+                lines.append(
+                    f"hub file: {_fp715.rsplit('/', 1)[-1]} is imported by"
+                    f" {len(_importers715)}/{len(_src_files715) - 1} source files ({_ratio715:.0%})"
+                    f" — architectural bottleneck; changes here cascade widely"
+                )
+                break
+
     return lines
 
 

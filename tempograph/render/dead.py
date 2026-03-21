@@ -2448,6 +2448,27 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — data format changed or integration was abandoned"
         )
 
+    # S719: Dead config loaders — unused functions with config-loading name patterns.
+    # Config loaders (load_config, parse_settings, read_conf) that are never called indicate
+    # abandoned configuration strategies or superseded loading mechanisms.
+    _loader_pfx719 = ("load_", "parse_", "read_")
+    _cfg_kws719 = ("config", "setting", "conf", "cfg")
+    _dead_loaders719 = [
+        s for s in dead
+        if s.kind.value in ("function", "method")
+        and not _is_test_file(s.file_path)
+        and any(s.name.lower().startswith(pfx) for pfx in _loader_pfx719)
+        and any(kw in s.name.lower() for kw in _cfg_kws719)
+    ]
+    if _dead_loaders719:
+        _ldr_names719 = ", ".join(s.name for s in _dead_loaders719[:3])
+        if len(_dead_loaders719) > 3:
+            _ldr_names719 += f" +{len(_dead_loaders719) - 3} more"
+        lines.append(
+            f"dead config loaders: {len(_dead_loaders719)} unused config-loading function(s) ({_ldr_names719})"
+            f" — abandoned config strategy or superseded loading mechanism"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

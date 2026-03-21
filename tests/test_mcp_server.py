@@ -34070,3 +34070,213 @@ class TestDeadSerializationFunctionsS713:
         assert "dead serialization functions" not in out, (
             f"'dead serialization functions' must not appear when fn is called; got:\n{out}"
         )
+
+
+# ---------------------------------------------------------------------------
+# S714 – S719
+# ---------------------------------------------------------------------------
+
+class TestQueryIsTestFileS714:
+    def test_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper(): pass\n"
+        )
+        (tmp_path / "test_utils.py").write_text(
+            "from utils import helper\n"
+            "def test_helper(): assert helper() is None\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "test_helper")
+        assert "query is a test file" in out, (
+            f"Expected 'query is a test file' when focused symbol is in test file; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper(): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\n"
+            "def main(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "helper")
+        assert "query is a test file" not in out, (
+            f"'query is a test file' must not appear for source symbol; got:\n{out}"
+        )
+
+
+class TestHubFileS715:
+    def test_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # shared.py imported by 4 out of 4 other source files (100%)
+        (tmp_path / "shared.py").write_text("def common(): pass\n")
+        (tmp_path / "a.py").write_text("from shared import common\ndef fa(): common()\n")
+        (tmp_path / "b.py").write_text("from shared import common\ndef fb(): common()\n")
+        (tmp_path / "c.py").write_text("from shared import common\ndef fc(): common()\n")
+        (tmp_path / "d.py").write_text("from shared import common\ndef fd(): common()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "hub file" in out, (
+            f"Expected 'hub file' when one file imported by >40% of sources; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # each file is independent — no hub
+        (tmp_path / "a.py").write_text("def fa(): pass\n")
+        (tmp_path / "b.py").write_text("def fb(): pass\n")
+        (tmp_path / "c.py").write_text("def fc(): pass\n")
+        (tmp_path / "d.py").write_text("def fd(): pass\n")
+        (tmp_path / "e.py").write_text("def fe(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "hub file" not in out, (
+            f"'hub file' must not appear when no dominant importer; got:\n{out}"
+        )
+
+
+class TestConfigFileBlastS716:
+    def test_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "config.py").write_text("DEBUG = True\nDB_URL = 'sqlite:///app.db'\n")
+        (tmp_path / "app.py").write_text(
+            "from config import DEBUG, DB_URL\ndef run(): return DB_URL\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "config.py")
+        assert "config file blast" in out, (
+            f"Expected 'config file blast' for config.py blast target; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "config file blast" not in out, (
+            f"'config file blast' must not appear for non-config file; got:\n{out}"
+        )
+
+
+class TestSameDirectoryDiffS717:
+    def test_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        subdir = tmp_path / "mylib"
+        subdir.mkdir()
+        (subdir / "a.py").write_text("def fa(): pass\n")
+        (subdir / "b.py").write_text("def fb(): pass\n")
+        (subdir / "c.py").write_text("def fc(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["mylib/a.py", "mylib/b.py", "mylib/c.py"])
+        assert "same-directory diff" in out, (
+            f"Expected 'same-directory diff' when all files in same dir; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "a.py").write_text("def fa(): pass\n")
+        subdir = tmp_path / "sub"
+        subdir.mkdir()
+        (subdir / "b.py").write_text("def fb(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["a.py", "sub/b.py"])
+        assert "same-directory diff" not in out, (
+            f"'same-directory diff' must not appear when files span multiple dirs; got:\n{out}"
+        )
+
+
+class TestDeprecatedHotspotS718:
+    def test_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # legacy_process called by many callers → becomes top hotspot
+        callers = "\n".join(
+            f"def caller{i}(): legacy_process()" for i in range(8)
+        )
+        (tmp_path / "core.py").write_text(
+            "def legacy_process(): pass\n"
+        )
+        (tmp_path / "consumers.py").write_text(
+            "from core import legacy_process\n" + callers + "\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "deprecated hotspot" in out, (
+            f"Expected 'deprecated hotspot' for legacy_ prefixed hotspot; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        callers = "\n".join(
+            f"def caller{i}(): process_data()" for i in range(8)
+        )
+        (tmp_path / "core.py").write_text(
+            "def process_data(): pass\n"
+        )
+        (tmp_path / "consumers.py").write_text(
+            "from core import process_data\n" + callers + "\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "deprecated hotspot" not in out, (
+            f"'deprecated hotspot' must not appear for non-deprecated hotspot name; got:\n{out}"
+        )
+
+
+class TestDeadConfigLoadersS719:
+    def test_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "loaders.py").write_text(
+            "def load_config(): return {}\n"
+            "def parse_settings(path): return {}\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead config loaders" in out, (
+            f"Expected 'dead config loaders' for unused load_config/parse_settings; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "loaders.py").write_text(
+            "def load_config(): return {}\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from loaders import load_config\n"
+            "def main(): return load_config()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead config loaders" not in out, (
+            f"'dead config loaders' must not appear when load_config is called; got:\n{out}"
+        )

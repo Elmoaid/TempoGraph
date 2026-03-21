@@ -3475,6 +3475,18 @@ def _signals_focused_fn_advanced(
                         f" — method changes affect all class consumers; check all call sites"
                     )
 
+    # S714: Query resolves to test file — the focused symbol lives in a test file, not source.
+    # Agents querying test files directly may miss the real implementation; test files
+    # describe expected behavior — redirect to the source counterpart for implementation details.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim714 = _seed_syms[0]
+        if _is_test_file(_prim714.file_path):
+            _src714 = _prim714.file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            lines.append(
+                f"\nquery is a test file: {_src714} is a test file"
+                f" — look at the source counterpart for implementation details"
+            )
+
     return lines
 
 
