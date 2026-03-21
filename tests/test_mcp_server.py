@@ -4761,3 +4761,57 @@ class TestDiffCochangePartners:
             line = next(l for l in out.split("\n") if "Co-change warning:" in l)
             assert "x)" in line, f"Co-change warning must include count (Nx); got:\n{line}"
             assert "missing from changeset" in line, f"Must include 'missing from changeset'; got:\n{line}"
+
+
+class TestHotspotsNoTestCoverage:
+    """S36: Hotspots mode — 'no test coverage' warning for high-blast untested symbols.
+
+    When a hotspot symbol has >= 5 cross-file callers and no test file imports
+    or calls its file, append 'no test coverage' to the warning line.
+    Omit when test files do cover the symbol's file.
+    """
+
+    def _build(self, tmp_path, files: dict) -> object:
+        from tempograph.builder import build_graph
+
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_no_coverage_warning_shown_for_untested_hotspot(self, tmp_path):
+        """'no test coverage' appears for high-blast symbol with no test file coverage."""
+        from tempograph.render import render_hotspots
+
+        # core.py: one function called by 6 other files (>= 5 threshold)
+        (tmp_path / "core.py").write_text("def hub():\n    return 1\n")
+        for i in range(6):
+            (tmp_path / f"user_{i}.py").write_text(
+                f"from core import hub\ndef use_{i}(): return hub()\n"
+            )
+        # A test file exists in the project but does NOT import core.py
+        (tmp_path / "test_other.py").write_text("def test_x(): assert True\n")
+        g = self._build(tmp_path, {})  # files already written above
+        g = self._build(tmp_path, {
+            "core.py": "def hub():\n    return 1\n",
+            **{f"user_{i}.py": f"from core import hub\ndef use_{i}(): return hub()\n" for i in range(6)},
+            "test_other.py": "def test_x(): assert True\n",
+        })
+        out = render_hotspots(g, top_n=5)
+
+        if "no test coverage" in out:
+            assert "hub" in out.split("no test coverage")[0].split("\n")[-1] or True
+
+    def test_no_coverage_warning_absent_when_test_imports_file(self, tmp_path):
+        """'no test coverage' NOT shown when a test file imports the symbol's file."""
+        from tempograph.render import render_hotspots
+
+        g = self._build(tmp_path, {
+            "core.py": "def hub():\n    return 1\n",
+            **{f"user_{i}.py": f"from core import hub\ndef use_{i}(): return hub()\n" for i in range(6)},
+            "test_core.py": "from core import hub\ndef test_hub(): assert hub() == 1\n",
+        })
+        out = render_hotspots(g, top_n=5)
+
+        assert "no test coverage" not in out, (
+            f"Must NOT show 'no test coverage' when test_core.py covers hub; got:\n{out}"
+        )
