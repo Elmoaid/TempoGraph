@@ -1612,6 +1612,29 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — component may be running without initialization; verify defaults before deleting"
         )
 
+    # S480: Dead debug helpers — debug_*/log_debug_*/dump_* functions with 0 callers.
+    # Unused debug helpers are usually safe to delete but indicate that the debugging
+    # path they supported was abandoned; verify the production path they were testing still works.
+    _s480_debug_prefixes = (
+        "debug_", "log_debug_", "dump_", "print_debug_", "trace_", "verbose_",
+        "debug_print_", "debug_log_",
+    )
+    _s480_dead_debug = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s480_debug_prefixes)
+    ]
+    if len(_s480_dead_debug) >= 2:
+        _dbg_names480 = ", ".join(s.name for s in _s480_dead_debug[:3])
+        if len(_s480_dead_debug) > 3:
+            _dbg_names480 += f" +{len(_s480_dead_debug) - 3} more"
+        lines.append(
+            f"dead debug helpers: {len(_s480_dead_debug)} unused debug fn(s) ({_dbg_names480})"
+            f" — safe to delete; verify the path they were debugging still works"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

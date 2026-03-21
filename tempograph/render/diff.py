@@ -35,6 +35,20 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — config changes affect runtime behavior silently; verify flag interactions and defaults"
         )
 
+    # S477: Multi-module diff — diff spans 5+ distinct top-level directories.
+    # Moved before early return so it fires even when changed files aren't in the graph.
+    _s477_top_dirs: set[str] = set()
+    for _f477 in changed_files:
+        _parts477 = _f477.replace("\\", "/").split("/")
+        _top477 = _parts477[0] if _parts477 else ""
+        if _top477 and _top477 != ".":
+            _s477_top_dirs.add(_top477)
+    if len(_s477_top_dirs) >= 5:
+        lines.append(
+            f"multi-module diff: changes span {len(_s477_top_dirs)} top-level directories"
+            f" — split into focused PRs per module to reduce review complexity"
+        )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
