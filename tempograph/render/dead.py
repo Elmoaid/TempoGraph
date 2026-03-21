@@ -353,6 +353,24 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             _dc_str += f" +{len(_dead_consts) - 3} more"
         lines.append(f"dead constants: {len(_dead_consts)} unused constants/variables ({_dc_str})")
 
+    # S178: Dead exports — exported functions that have 0 callers and confidence >= 40.
+    # These are public API symbols that were never used — over-exposed surface or abandoned stubs.
+    # Only shown when 3+ such dead exported functions found.
+    _s178_dead_exports = [
+        sym for sym, conf in scored
+        if conf >= 40
+        and not _is_test_file(sym.file_path)
+        and sym.exported
+        and sym.kind.value in ("function", "method")
+        and len(graph.callers_of(sym.id)) == 0
+    ]
+    if len(_s178_dead_exports) >= 3:
+        _de_names = [s.name for s in _s178_dead_exports[:3]]
+        _de_str = ", ".join(_de_names)
+        if len(_s178_dead_exports) > 3:
+            _de_str += f" +{len(_s178_dead_exports) - 3} more"
+        lines.append(f"dead exports: {len(_s178_dead_exports)} exported fns with 0 callers ({_de_str})")
+
     # S172: Dead class — a class with conf >= 40 that contains at least 1 method.
     # Dead classes = entire feature removal candidates; deleting one removes many symbols.
     # Only shown when >= 1 non-test class qualifies.

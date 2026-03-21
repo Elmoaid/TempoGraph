@@ -650,6 +650,25 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 f" — highest combined velocity+complexity"
             )
 
+    # S176: Interface hotspot — the top hotspot file contains an interface or abstract class.
+    # Interfaces are contracts; changing them breaks all implementors, amplifying blast radius.
+    # Only shown when the top hotspot file contains >= 1 interface/abstract symbol.
+    if scores:
+        _top176_fp = scores[0][1].file_path
+        _s176_ifaces = [
+            s for s in graph.symbols.values()
+            if s.file_path == _top176_fp
+            and s.kind.value in ("interface", "abstract_class")
+        ]
+        if _s176_ifaces:
+            _s176_names = [s.name for s in _s176_ifaces[:3]]
+            _s176_str = ", ".join(_s176_names)
+            _top176_base = _top176_fp.rsplit("/", 1)[-1]
+            lines.append(
+                f"\ninterface hotspot: {_top176_base} defines {len(_s176_ifaces)}"
+                f" interface(s) ({_s176_str}) — contract changes break all implementors"
+            )
+
     # S170: Velocity spike — the top hotspot file's velocity is >= 3x the median velocity.
     # A single file being changed far more than the rest is a concentration risk.
     # Only shown when 3+ files have non-zero velocity and top >= 3x median.
