@@ -1499,6 +1499,52 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — may be removed features; check docs and scripts before deleting"
         )
 
+    # S450: Dead error handlers — handle_*/on_error_*/except_* functions with 0 callers.
+    # Unused error handlers suggest that error paths were wired up but then abandoned;
+    # the error may still propagate but is now unhandled, creating silent failure modes.
+    _s450_error_prefixes = (
+        "handle_error_", "handle_exception_", "on_error_", "on_exception_",
+        "except_", "catch_", "recover_",
+    )
+    _s450_dead_handlers = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s450_error_prefixes)
+    ]
+    if len(_s450_dead_handlers) >= 1:
+        _handler_names450 = ", ".join(s.name for s in _s450_dead_handlers[:3])
+        if len(_s450_dead_handlers) > 3:
+            _handler_names450 += f" +{len(_s450_dead_handlers) - 3} more"
+        lines.append(
+            f"dead error handlers: {len(_s450_dead_handlers)} unregistered error fn(s) ({_handler_names450})"
+            f" — error paths may be unhandled; verify before deleting"
+        )
+
+    # S456: Dead formatters — format_*/formatter_*/pretty_* functions with 0 callers.
+    # Dead formatting functions suggest a display layer was written but never wired up;
+    # data may be rendered without formatting, or the formatter was replaced but not cleaned up.
+    _s456_fmt_prefixes = (
+        "format_", "formatter_", "pretty_", "pretty_print_",
+        "render_output_", "display_",
+    )
+    _s456_dead_fmts = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s456_fmt_prefixes)
+    ]
+    if len(_s456_dead_fmts) >= 2:
+        _fmt_names456 = ", ".join(s.name for s in _s456_dead_fmts[:3])
+        if len(_s456_dead_fmts) > 3:
+            _fmt_names456 += f" +{len(_s456_dead_fmts) - 3} more"
+        lines.append(
+            f"dead formatters: {len(_s456_dead_fmts)} unused display fn(s) ({_fmt_names456})"
+            f" — output may be unformatted; verify display layer before deleting"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

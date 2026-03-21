@@ -1515,5 +1515,41 @@ def _collect_hotspots_signals(
                 f" for second-place — extreme outlier; likely a god object or catch-all module"
             )
 
+    # S448: Untested hotspot file — top hotspot has no test file covering it by name.
+    # The hottest file in the repo having no corresponding test is doubly risky:
+    # high churn without a safety net means every change is an untested regression risk.
+    if scores:
+        _top448 = scores[0][1]
+        if not _is_test_file(_top448.file_path):
+            _stem448 = _top448.file_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            _has_test448 = any(
+                _stem448 in fp and _is_test_file(fp)
+                for fp in graph.files
+            )
+            if not _has_test448:
+                out.append(
+                    f"\nuntested hotspot: {_top448.file_path.rsplit('/', 1)[-1]} is the top hotspot"
+                    f" with no corresponding test file"
+                    f" — high-churn code with no safety net; add tests before modifying"
+                )
+
+    # S455: Shared fixture hotspot — top hotspot is a shared test fixture (conftest.py / fixtures/).
+    # Shared fixtures are an invisible test dependency; changing conftest.py or a shared fixture
+    # breaks every test that uses it, even tests in unrelated directories.
+    if scores:
+        _top455 = scores[0][1]
+        _fp455 = _top455.file_path.lower().replace("\\", "/")
+        _is_fixture455 = (
+            "conftest" in _fp455
+            or "fixture" in _fp455
+            or _fp455.endswith("/fixtures.py")
+            or "/fixtures/" in _fp455
+        )
+        if _is_fixture455:
+            out.append(
+                f"\nfixture hotspot: {_top455.file_path.rsplit('/', 1)[-1]} is a shared test fixture"
+                f" — changes break every test that depends on it; refactor carefully"
+            )
+
     return out
 

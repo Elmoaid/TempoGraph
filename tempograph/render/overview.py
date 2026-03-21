@@ -2096,6 +2096,25 @@ def _signals_async_oop(
             f" — cross-language changes need coordinated builds and tooling per layer"
         )
 
+    # S452: Test-thin codebase — test lines are under 20% of source lines.
+    # Low test coverage relative to source means most changes are unverified;
+    # the lower the ratio, the higher the risk of silent regressions.
+    _s452_src_lines = sum(
+        graph.files[fp].line_count for fp in graph.files
+        if not _is_test_file(fp) and any(fp.endswith(ext) for ext in (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb"))
+        and graph.files[fp].line_count
+    )
+    _s452_test_lines = sum(
+        graph.files[fp].line_count for fp in graph.files
+        if _is_test_file(fp) and graph.files[fp].line_count
+    )
+    if _s452_src_lines > 500 and _s452_test_lines < _s452_src_lines * 0.2:
+        _ratio452 = int(_s452_test_lines / _s452_src_lines * 100) if _s452_src_lines else 0
+        lines.append(
+            f"test-thin: test code is only {_ratio452}% of source ({_s452_test_lines:,} vs {_s452_src_lines:,} lines)"
+            f" — most changes are unverified; add tests before refactoring"
+        )
+
     return lines
 
 
