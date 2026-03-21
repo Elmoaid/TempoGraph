@@ -3429,6 +3429,29 @@ def _signals_focused_fn_advanced(
                     f" — changes propagate through a high-traffic path; extra caution needed"
                 )
 
+    # S702: High arity — focused function/method has 5+ parameters.
+    # Functions with many parameters are hard to call correctly and signal missing abstractions;
+    # callers must know the correct argument order, and tests require many stubs.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim702 = _seed_syms[0]
+        if (
+            not _is_test_file(_prim702.file_path)
+            and _prim702.kind.value in ("function", "method")
+            and _prim702.signature
+        ):
+            _sig702 = _prim702.signature
+            _param_str702 = _sig702.split("(", 1)[-1].split(")", 1)[0] if "(" in _sig702 else ""
+            _no_self702 = _param_str702.replace("self,", "").replace("self", "").strip()
+            _arity702 = (
+                len([p for p in _no_self702.split(",") if p.strip()])
+                if _no_self702 else 0
+            )
+            if _arity702 >= 5:
+                lines.append(
+                    f"\nhigh arity: {_prim702.name} has {_arity702} parameters"
+                    f" — consider grouping parameters into a config/options object"
+                )
+
     return lines
 
 

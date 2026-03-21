@@ -2207,5 +2207,21 @@ def _collect_hotspots_signals(
                     f" — module-level bottleneck; consider splitting or extracting an interface"
                 )
 
+    # S706: Large function body — top hotspot has byte_size > 3000 bytes.
+    # A hotspot that is also physically large concentrates both traffic and logic;
+    # it's the highest-priority target for extraction and complexity reduction.
+    if scores and scores[0]:
+        _top706 = scores[0][1]
+        if (
+            _top706 is not None
+            and not _is_test_file(_top706.file_path)
+            and _top706.kind.value in ("function", "method")
+            and _top706.byte_size > 3000
+        ):
+            out.append(
+                f"\nlarge function body: {_top706.name} is {_top706.byte_size:,} bytes"
+                f" — large hotspot function; extract sub-functions to reduce complexity"
+            )
+
     return out
 
