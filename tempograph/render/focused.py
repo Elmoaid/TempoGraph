@@ -1568,6 +1568,26 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                 _uc_str += f" +{len(_uc_files) - 3} more"
             lines.append(f"\nuntested callers: {len(_uc_files)} caller files have no tests ({_uc_str})")
 
+    # S120: Call depth — longest call chain from seed down to a leaf (no callees).
+    # Measures how deep the seed reaches before hitting dead-end functions.
+    # Deep chains (>= 5) mean a change at the top propagates through many layers.
+    if _seed_syms and token_count < max_tokens - 60:
+        _s120_max_depth = 0
+        for _s120_seed in _seed_syms[:2]:  # limit BFS to top 2 seeds
+            _s120_visited: set[str] = set()
+            _s120_queue = [(_s120_seed.id, 0)]
+            while _s120_queue:
+                _s120_sid, _s120_d = _s120_queue.pop(0)
+                if _s120_sid in _s120_visited:
+                    continue
+                _s120_visited.add(_s120_sid)
+                _s120_max_depth = max(_s120_max_depth, _s120_d)
+                for _s120_callee in graph.callees_of(_s120_sid):
+                    if _s120_callee.id not in _s120_visited:
+                        _s120_queue.append((_s120_callee.id, _s120_d + 1))
+        if _s120_max_depth >= 5:
+            lines.append(f"\ncall depth: {_s120_max_depth} hops to leaf")
+
     # S103: Cross-file callees — distinct files the seed's direct callees live in.
     # A function pulling from many files = wide dependency scope = broad change risk.
     # Shown when seed calls into 3+ distinct external files.
