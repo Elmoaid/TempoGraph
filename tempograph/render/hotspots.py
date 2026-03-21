@@ -1173,4 +1173,48 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 f" ({_lang318}) — hotspot in secondary language; domain expertise required"
             )
 
+    # S326: Hotspot in multi-commit file — top hotspot file appears in the most recent git history.
+    # The top hotspot is already the most changed file; if it's also the most recently touched,
+    # it signals an active instability zone that deserves isolation or review before merging.
+    # (Implementation: check that file_path appears in file_commit_counts, approximated via callers)
+    if scores:
+        _top326 = scores[0][1]
+        _file326 = _top326.file_path
+        if not _is_test_file(_file326):
+            # Proxy: file is "multi-commit" if it has symbols with many cross-file callers AND
+            # is NOT a test file. Already captured by the main hotspot score; add extra context
+            # when the top file's symbol count also suggests high activity.
+            _file_syms326 = [s for s in graph.symbols.values() if s.file_path == _file326]
+            _callee_count326 = sum(
+                1 for e in graph.edges
+                if e.kind.value == "calls"
+                and any(s.id == e.source_id for s in _file_syms326)
+            )
+            if len(_file_syms326) >= 10 and _callee_count326 >= 20:
+                lines.append(
+                    f"\nhigh-activity hotspot: {_file326.rsplit('/', 1)[-1]} has"
+                    f" {len(_file_syms326)} symbols and {_callee_count326} outgoing calls"
+                    f" — dense file; isolate changes with thorough code review"
+                )
+
+    # S332: Cross-module hotspot — top hotspot is called from 3+ distinct top-level directories.
+    # A hotspot that spans multiple top-level modules is a cross-cutting concern;
+    # changes to it require coordinating reviews across multiple team boundaries.
+    if scores:
+        _top332 = scores[0][1]
+        if not _is_test_file(_top332.file_path):
+            _callers332 = graph.callers_of(_top332.id)
+            _top_dirs332: set[str] = set()
+            for _c332 in _callers332:
+                if _c332.file_path != _top332.file_path:
+                    _parts332 = _c332.file_path.replace("\\", "/").split("/")
+                    if len(_parts332) >= 2:
+                        _top_dirs332.add(_parts332[0])
+            if len(_top_dirs332) >= 3:
+                lines.append(
+                    f"\ncross-module hotspot: {_top332.name} called from"
+                    f" {len(_top_dirs332)} top-level dirs ({', '.join(sorted(_top_dirs332)[:3])})"
+                    f" — cross-cutting concern; multi-team coordination required"
+                )
+
     return "\n".join(lines)  # ALWAYS return here — never inside a conditional block

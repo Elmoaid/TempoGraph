@@ -940,6 +940,40 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" imported by {len(importers)} files — default value changes affect all consumers silently"
         )
 
+    # S325: Dual-purpose module — blast target contains both library symbols AND an entry point.
+    # Files that mix library code with `if __name__ == '__main__'` patterns have implicit
+    # coupling between the script and the library; changes to either half affect both uses.
+    _s325_all_syms = list(graph.symbols.values())
+    _s325_file_syms = [s for s in _s325_all_syms if s.file_path == file_path]
+    _s325_has_lib = any(
+        s.kind.value in ("function", "class") and s.exported for s in _s325_file_syms
+    )
+    _s325_has_main = any(
+        s.name in ("main", "__main__") or "if __name__" in (s.signature or "")
+        for s in _s325_file_syms
+    )
+    if _s325_has_lib and _s325_has_main and importers:
+        lines.append(
+            f"dual-purpose module: {file_path.rsplit('/', 1)[-1]} mixes library and script code"
+            f" — changes to either side affect both library callers and script behavior"
+        )
+
+    # S331: Schema blast — target defines ORM/schema models imported widely.
+    # Schema changes affect all serialization, validation, migration, and API layers
+    # simultaneously; a single field rename can break dozens of consumers.
+    _s331_schema_words = ("schema", "model", "entity", "orm", "record", "table", "migration")
+    _fp331 = file_path.lower().replace("\\", "/")
+    _is_schema331 = any(w in _fp331 for w in _s331_schema_words)
+    if not _is_schema331:
+        _stem331 = file_path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+        _is_schema331 = any(w in _stem331 for w in _s331_schema_words)
+    if _is_schema331 and len(importers) >= 4:
+        lines.append(
+            f"schema blast: {file_path.rsplit('/', 1)[-1]} appears to be a schema/model file"
+            f" imported by {len(importers)} files"
+            f" — field/type changes propagate to serializers, validators, and API layers"
+        )
+
     if not importers and not external_callers and not render_targets:
         lines.append("No external dependencies found — safe to modify in isolation.")
 
