@@ -2105,6 +2105,15 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — value changes propagate silently to all importers without triggering call-graph alerts"
         )
 
+    # S818: Test file blast — blast target is a test file itself.
+    # Changing a test file affects test coverage and safety nets; if the test file is
+    # shared (helpers, fixtures), the change can silently degrade test quality across suites.
+    if _is_test_file(_fp589):
+        lines.append(
+            f"test file blast: {_fp589.rsplit('/', 1)[-1]} is a test file"
+            f" — changes here affect coverage and safety nets; verify no fixtures are inadvertently modified"
+        )
+
     return "\n".join(lines)
 
 
