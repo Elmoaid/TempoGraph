@@ -2499,6 +2499,28 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                     f" — may be unreachable dead code; verify before modifying"
                 )
 
+    # S386: Callback-style function — focused function takes a parameter named fn/callback/handler.
+    # Callback-style APIs are harder to type-check and test; the callable contract is implicit
+    # and callers must know the expected signature without IDE autocompletion.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim386 = next(
+            (s for s in _seed_syms if s.kind.value in ("function", "method")), None
+        )
+        if _prim386 and _prim386.signature:
+            _cb_param_names = {"fn", "func", "callback", "cb", "handler", "on_success",
+                               "on_error", "on_complete", "hook", "callable_"}
+            _sig386 = _prim386.signature
+            _params386 = _sig386[_sig386.find("(") + 1: _sig386.rfind(")")].lower() if "(" in _sig386 else ""
+            _has_cb386 = any(
+                p.strip().split(":")[0].strip().split("=")[0].strip() in _cb_param_names
+                for p in _params386.split(",")
+            )
+            if _has_cb386:
+                lines.append(
+                    f"\ncallback-style: {_prim386.name} accepts a callable argument"
+                    f" — implicit callable contract; document expected signature and error behavior"
+                )
+
     return "\n".join(lines)
 
 

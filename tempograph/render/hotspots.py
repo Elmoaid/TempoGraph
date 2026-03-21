@@ -1319,6 +1319,23 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                     f" — large files accumulate accidental complexity; consider splitting by responsibility"
                 )
 
+    # S388: API endpoint hotspot — top hotspot lives in a routes/endpoints/views file.
+    # API endpoint hotspots indicate that a route handler or view is accumulating logic;
+    # endpoint files should be thin orchestrators, not computation hubs.
+    if scores:
+        _top388 = scores[0][1]
+        _fp388 = _top388.file_path.lower()
+        _api_patterns388 = (
+            "route", "endpoint", "view", "controller", "handler",
+            "rest", "graphql", "api",
+        )
+        _is_api388 = any(p in _fp388 for p in _api_patterns388) and not _is_test_file(_top388.file_path)
+        if _is_api388:
+            lines.append(
+                f"\nAPI hotspot: {_top388.file_path.rsplit('/', 1)[-1]} is a route/endpoint file"
+                f" — endpoint files should delegate; move logic to service layer to reduce hotspot"
+            )
+
     # S382: Deep call chain hotspot — top hotspot has 3+ direct callers AND 5+ depth-2 callers.
     # Symbols with deep fan-in are harder to refactor safely; changes propagate through
     # multiple layers, and intermediate layers may have baked-in assumptions.

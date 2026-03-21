@@ -1248,6 +1248,29 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned constructor alternatives; safe to remove after confirming no dynamic use"
         )
 
+    # S390: Dead report generators — report_*/generate_*_report/export_* with 0 callers.
+    # Dead report generators often represent features that were built but never shipped;
+    # they consume test/maintenance attention and mislead about what the system can produce.
+    _s390_report_prefixes = (
+        "report_", "generate_report", "generate_", "export_", "build_report_",
+        "create_report_", "render_report_",
+    )
+    _s390_dead_reports = [
+        sym for sym, conf in scored
+        if conf >= 30
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.lower().startswith(p) for p in _s390_report_prefixes)
+    ]
+    if len(_s390_dead_reports) >= 2:
+        _rpt_names390 = ", ".join(s.name for s in _s390_dead_reports[:3])
+        if len(_s390_dead_reports) > 3:
+            _rpt_names390 += f" +{len(_s390_dead_reports) - 3} more"
+        lines.append(
+            f"dead report generators: {len(_s390_dead_reports)} unused report fn(s) ({_rpt_names390})"
+            f" — unshipped reporting features; misleads about what the system can produce"
+        )
+
     # S384: Dead cleanup functions — cleanup_*/teardown_*/destroy_* functions with 0 callers.
     # Cleanup functions that are never called may have been unregistered from lifecycle hooks
     # without being deleted; they consume memory and create false confidence in cleanup behavior.

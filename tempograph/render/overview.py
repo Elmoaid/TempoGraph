@@ -1749,6 +1749,30 @@ def _signals_structure(
             )
 
 
+    # S385: High dead export ratio — 30%+ of exported symbols have 0 callers from other files.
+    # A high proportion of uncalled exports indicates over-engineered public API surface;
+    # each unused export creates maintenance burden and risk of unintended consumers.
+    _s385_exported = [
+        s for s in graph.symbols.values()
+        if s.exported and not _is_test_file(s.file_path)
+        and s.kind.value in ("function", "method", "class")
+        and s.file_path in graph.files
+        and graph.files[s.file_path].language.value in _CODE_LANGS
+    ]
+    if len(_s385_exported) >= 15:
+        _s385_uncalled = [
+            s for s in _s385_exported
+            if not any(e.target_id == s.id and e.kind.value == "calls" for e in graph.edges)
+            and not graph.importers_of(s.file_path)
+        ]
+        if len(_s385_uncalled) / len(_s385_exported) >= 0.30:
+            _pct385 = int(100 * len(_s385_uncalled) / len(_s385_exported))
+            lines.append(
+                f"unused exports: {_pct385}% of exported symbols ({len(_s385_uncalled)}/{len(_s385_exported)}) have no callers"
+                f" — over-engineered API surface; unexported unused symbols reduce blast radius"
+            )
+
+
     return lines
 
 
