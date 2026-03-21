@@ -10895,3 +10895,123 @@ class TestOverviewAvgFnSize:
         assert "avg fn size" not in out, (
             f"'avg fn size' must not appear for codebase with small functions; got:\n{out}"
         )
+
+
+class TestBlastAggregatorFile:
+    """S138: Blast — 'aggregator file: imports from N modules' for barrel/hub files."""
+
+    def test_aggregator_flagged_when_many_imports(self, tmp_path):
+        """File that imports from 5+ modules → 'aggregator file:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_blast_radius
+
+        # Create 6 separate modules
+        for i in range(6):
+            (tmp_path / f"mod_{i}.py").write_text(f"def fn_{i}():\n    pass\n")
+        # barrel.py imports from all 6
+        barrel_code = "\n".join(f"from mod_{i} import fn_{i}" for i in range(6))
+        (tmp_path / "barrel.py").write_text(barrel_code + "\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "barrel.py")
+        assert "aggregator file" in out, (
+            f"Expected 'aggregator file' when file imports from 6 modules; got:\n{out}"
+        )
+
+    def test_aggregator_absent_for_few_imports(self, tmp_path):
+        """File with < 5 imports → 'aggregator file:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_blast_radius
+
+        for i in range(3):
+            (tmp_path / f"dep_{i}.py").write_text(f"def dep_fn_{i}():\n    pass\n")
+        (tmp_path / "small_hub.py").write_text(
+            "from dep_0 import dep_fn_0\nfrom dep_1 import dep_fn_1\n"
+            "def hub():\n    dep_fn_0(); dep_fn_1()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "small_hub.py")
+        assert "aggregator file" not in out, (
+            f"'aggregator file' must not appear for file with < 5 imports; got:\n{out}"
+        )
+
+
+class TestHotspotsCallerConcentration:
+    """S139: Hotspots — 'caller concentration: file = N% of sym callers'."""
+
+    def test_concentrated_caller_flagged(self, tmp_path):
+        """One file accounts for >= 50% of calls to top hotspot → 'caller concentration:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        (tmp_path / "core.py").write_text(
+            "def hot_fn(x):\n" + "".join(f"    if x == {i}: return {i}\n" for i in range(8)) + "    return 0\n"
+        )
+        # One dominant caller file (5 call sites) + 3 minor callers (1 each)
+        dominant_calls = "\n".join(
+            f"from core import hot_fn\ndef user_{i}(): return hot_fn({i})" for i in range(5)
+        )
+        (tmp_path / "dominant.py").write_text(dominant_calls + "\n")
+        for i in range(3):
+            (tmp_path / f"minor_{i}.py").write_text(
+                f"from core import hot_fn\ndef go(): return hot_fn({i + 10})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "caller concentration" in out, (
+            f"Expected 'caller concentration' when one file dominates calls; got:\n{out}"
+        )
+
+    def test_caller_concentration_absent_when_spread(self, tmp_path):
+        """Callers spread evenly across files → 'caller concentration:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_hotspots
+
+        (tmp_path / "shared.py").write_text(
+            "def shared_fn(x):\n" + "".join(f"    if x == {i}: return {i}\n" for i in range(5)) + "    return 0\n"
+        )
+        # 5 callers, each from a distinct file with 1 call — spread evenly
+        for i in range(5):
+            (tmp_path / f"user_{i}.py").write_text(
+                f"from shared import shared_fn\ndef go(): return shared_fn({i})\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "caller concentration" not in out, (
+            f"'caller concentration' must not appear for spread callers; got:\n{out}"
+        )
+
+
+class TestDeadTestHelpers:
+    """S140: Dead code — 'dead test helpers: N unused helper fns in test files'."""
+
+    def test_dead_test_helpers_shown(self, tmp_path):
+        """Test file with 3+ unused helper fns → 'dead test helpers:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        # Unused helper fns (not test_ prefix, not called by anything)
+        helpers = "\n".join(
+            f"def helper_{i}(x):\n    return x + {i}" for i in range(4)
+        )
+        (tmp_path / "test_stuff.py").write_text(
+            helpers + "\ndef test_main():\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead test helpers" in out, (
+            f"Expected 'dead test helpers' for 4 uncalled helper fns; got:\n{out}"
+        )
+
+    def test_dead_test_helpers_absent_when_few(self, tmp_path):
+        """Test file with < 3 unused helper fns → 'dead test helpers:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_dead_code
+
+        (tmp_path / "test_small.py").write_text(
+            "def helper_fn(x):\n    return x\ndef test_main():\n    helper_fn(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead test helpers" not in out, (
+            f"'dead test helpers' must not appear when < 3 helpers are dead; got:\n{out}"
+        )
