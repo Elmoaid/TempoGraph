@@ -1816,6 +1816,20 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — consider inlining or merging to reduce file count"
         )
 
+    # S674: Entry point blast — blast target matches a well-known entry point filename.
+    # Entry point files (main.py, app.py, server.py, cli.py, __main__.py) wire together
+    # the whole system; changes here can silently break startup and shutdown paths.
+    _entry_names674 = {
+        "main.py", "app.py", "server.py", "cli.py", "__main__.py",
+        "entrypoint.py", "entry.py", "wsgi.py", "asgi.py", "run.py",
+    }
+    _blast_basename674 = _fp589.rsplit("/", 1)[-1]
+    if _blast_basename674 in _entry_names674:
+        lines.append(
+            f"entry point blast: {_blast_basename674} is a known entry point"
+            f" — changes here affect system startup; verify initialization order and side effects"
+        )
+
     return "\n".join(lines)
 
 

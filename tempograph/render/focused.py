@@ -3340,6 +3340,24 @@ def _signals_focused_fn_advanced(
                     f" — high outgoing coupling; changes to callees will cascade here"
                 )
 
+    # S672: Duplicated name — focused symbol's name appears as a top-level symbol in 3+ files.
+    # The same function name defined in many files signals copy-paste drift or inconsistent
+    # abstraction; callers may be using the wrong version without knowing it.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim672 = _seed_syms[0]
+        if not _is_test_file(_prim672.file_path):
+            _dup_count672 = sum(
+                1 for s in graph.symbols.values()
+                if s.name == _prim672.name
+                and s.parent_id is None
+                and not _is_test_file(s.file_path)
+            )
+            if _dup_count672 >= 3:
+                lines.append(
+                    f"\nduplicated name: '{_prim672.name}' defined in {_dup_count672} files"
+                    f" — copy-paste drift; callers may resolve to the wrong definition"
+                )
+
     return lines
 
 

@@ -31601,3 +31601,4 @@ class TestDeadModuleS671:
         assert "dead module" not in out, (
             f"'dead module' must not appear when files have at least 1 live symbol; got:\n{out}"
         )
+
