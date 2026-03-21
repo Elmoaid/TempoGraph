@@ -2227,6 +2227,42 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                     f" — type or name changes break all usages silently"
                 )
 
+    # S303: Long function — focused function is 30+ lines (high cyclomatic complexity proxy).
+    # Long functions tend to have more paths, harder to test, and harder to understand.
+    # Reading the full body before editing reduces the chance of missing a branch.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim303 = next(
+            (s for s in _seed_syms if s.kind.value in ("function", "method")), None
+        )
+        if _prim303 and _prim303.line_count >= 30:
+            lines.append(
+                f"\nlong function: {_prim303.name} is {_prim303.line_count} lines"
+                f" — read full body before editing; high branch count"
+            )
+
+    # S309: Re-exported symbol — focused symbol is also exported from an __init__ or index file.
+    # Re-exported symbols have two blast radii: direct imports from the definition file
+    # and indirect imports via the facade/index module.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim309 = _seed_syms[0]
+        if _prim309.exported:
+            _reexport309 = [
+                s for s in graph.symbols.values()
+                if s.name == _prim309.name
+                and s.file_path != _prim309.file_path
+                and s.exported
+                and (
+                    s.file_path.endswith("__init__.py")
+                    or s.file_path.rsplit("/", 1)[-1].startswith("index.")
+                )
+            ]
+            if _reexport309:
+                _facade_name309 = _reexport309[0].file_path.rsplit("/", 1)[-1]
+                lines.append(
+                    f"\nre-exported: {_prim309.name} also exported from {_facade_name309}"
+                    f" — dual blast radius; importers of the facade are also affected"
+                )
+
     return "\n".join(lines)
 
 
