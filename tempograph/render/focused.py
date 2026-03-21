@@ -2714,6 +2714,30 @@ def _signals_focused_fn_advanced(
                     f" — verify migration to replacement is complete before removing"
                 )
 
+    # S476: Thread-safe function — focused function name implies locking or synchronization.
+    # Thread-safe functions have stricter behavioral contracts; a change that looks
+    # correct in single-threaded analysis may deadlock or cause races under concurrency.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim476 = next((s for s in _seed_syms if s.kind.value in ("function", "method")), None)
+        if _prim476:
+            _lock_markers476 = ("_locked", "_synchronized", "_atomic", "_thread_safe", "_safe", "with_lock_")
+            _lock_callee_names476 = {"acquire", "release", "lock", "unlock", "synchronized"}
+            _is_thread_safe476 = any(m in _prim476.name.lower() for m in _lock_markers476)
+            if not _is_thread_safe476:
+                _callees476 = [
+                    graph.symbols[e.target_id].name
+                    for e in graph.edges
+                    if e.kind.value == "calls" and e.source_id == _prim476.id
+                    and e.target_id in graph.symbols
+                    and graph.symbols[e.target_id].name.lower() in _lock_callee_names476
+                ]
+                _is_thread_safe476 = bool(_callees476)
+            if _is_thread_safe476:
+                lines.append(
+                    f"\nthread-safe: {_prim476.name} uses locking or synchronization"
+                    f" — changes must preserve the lock invariants; test under concurrency before merging"
+                )
+
     # S350: Orphaned symbol — focused symbol has 0 callers and the file is not imported anywhere.
     # Zero-caller symbols in unimported files may be dead code that was never wired up
     # during a refactor; modifying them has no effect unless the file is imported first.
