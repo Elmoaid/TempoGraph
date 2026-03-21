@@ -2615,6 +2615,25 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned event integration; the event source was likely removed"
         )
 
+    # S767: Dead getter functions — unused functions with get_/fetch_/load_ prefix patterns.
+    # Getter-style functions that are never called indicate abandoned data retrieval logic;
+    # they often represent queries or loaders from a feature that was removed or replaced.
+    _getter_kws767 = ("get_", "fetch_", "load_", "retrieve_", "find_")
+    _dead_getters767 = [
+        s for s in dead
+        if s.kind.value in ("function", "method")
+        and not _is_test_file(s.file_path)
+        and any(s.name.lower().startswith(kw) for kw in _getter_kws767)
+    ]
+    if _dead_getters767:
+        _g_names767 = ", ".join(s.name for s in _dead_getters767[:3])
+        if len(_dead_getters767) > 3:
+            _g_names767 += f" +{len(_dead_getters767) - 3} more"
+        lines.append(
+            f"dead getter functions: {len(_dead_getters767)} unused getter function(s) ({_g_names767})"
+            f" — abandoned data retrieval logic; feature or query was removed"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

@@ -2003,6 +2003,21 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — changes here affect which handlers run per request; test all affected routes"
         )
 
+    # S764: Large API file — the blast target file has 10+ exported top-level symbols.
+    # Files with many exports define large API surfaces; any change risks breaking
+    # one of many callers even if only a single symbol is touched.
+    _fi764 = graph.files.get(_fp589)
+    if _fi764 and not _is_test_file(_fp589):
+        _exported764 = [
+            s for s in graph.symbols.values()
+            if s.file_path == _fp589 and s.parent_id is None and s.exported
+        ]
+        if len(_exported764) >= 10:
+            lines.append(
+                f"large API file: {_fp589.rsplit('/', 1)[-1]} exports {len(_exported764)} public symbols"
+                f" — large surface area; any change risks breaking a consumer; consider splitting"
+            )
+
     return "\n".join(lines)
 
 
