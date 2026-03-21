@@ -337,6 +337,23 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             _mb_parts = [f"{mod}/ ({cnt})" for mod, cnt in _module_items[:4]]
             lines.append(f"dead by module: {', '.join(_mb_parts)}")
 
+    # S148: Largest dead fn — the single biggest dead symbol by line count.
+    # Large dead code (>= 20 lines) = likely an abandoned feature, not a trivial stub.
+    # Provides a high-value cleanup target: one deletion removes significant code mass.
+    _src_dead_fns = [
+        (sym, conf) for sym, conf in scored
+        if conf >= 40
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and sym.line_count >= 20
+    ]
+    if _src_dead_fns:
+        _biggest_sym = max(_src_dead_fns, key=lambda x: x[0].line_count)[0]
+        lines.append(
+            f"largest dead fn: {_biggest_sym.line_count}L {_biggest_sym.name}"
+            f" in {_biggest_sym.file_path.rsplit('/', 1)[-1]} — consider removing"
+        )
+
     # S140: Dead test helpers — unused functions defined in test files (not fixtures/conftest).
     # Test helper fns that nobody calls are stale utilities from abandoned test strategies.
     # Safe to delete; flag when >= 3 are found to prompt cleanup.

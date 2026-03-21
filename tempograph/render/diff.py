@@ -375,6 +375,19 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             else:
                 lines.append("touched test count: 0 — no test files found for changed files")
 
+    # S149: Mixed concern — diff touches both source and test files.
+    # Mixing src+test changes in one commit complicates cherry-picks, bisects, and reverts.
+    # Flag when the diff has 1+ source files AND 1+ test files.
+    _s149_has_src = any(not _is_test_file(fp) for fp in normalized)
+    _s149_has_test = any(_is_test_file(fp) for fp in normalized)
+    if _s149_has_src and _s149_has_test:
+        _s149_test_count = sum(1 for fp in normalized if _is_test_file(fp))
+        _s149_src_count = sum(1 for fp in normalized if not _is_test_file(fp))
+        lines.append(
+            f"mixed concern: {_s149_src_count} source + {_s149_test_count} test files"
+            f" — consider splitting into separate commits"
+        )
+
     # S143: Cross-module impact — how many distinct top-level directories the diff touches.
     # A diff touching 3+ modules has broader coordination risk than a single-module change.
     # Only shown when the diff touches source files in 3+ distinct top-level directories.
