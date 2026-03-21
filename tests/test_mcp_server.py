@@ -9472,3 +9472,113 @@ class TestDeadCodeClusteredDead:
         assert "Clustered dead:" not in out, (
             f"'Clustered dead:' must not appear when no file has 3+ dead symbols; got:\n{out}"
         )
+
+
+class TestDiffPrivateCallers:
+    """S102: Diff 'Private callers: N' — non-exported callers of changed exported symbols."""
+
+    def test_private_callers_shown_when_many_internal_callers(self, tmp_path):
+        """3+ private (non-exported) callers of exported symbol → 'Private callers: N' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "api.py").write_text("def get_data(): return 1\n")
+        # 4 private (non-exported) callers in a different file
+        body = "from api import get_data\n"
+        for i in range(4):
+            body += f"def _internal_{i}(): return get_data()\n"
+        (tmp_path / "internals.py").write_text(body)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["api.py"])
+        assert "Private callers:" in out, (
+            f"Expected 'Private callers:' for 4 private callers; got:\n{out}"
+        )
+
+    def test_private_callers_absent_when_few_callers(self, tmp_path):
+        """Only 2 private callers → 'Private callers:' not shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "utils.py").write_text("def helper(): return 1\n")
+        body = "from utils import helper\n"
+        for i in range(2):
+            body += f"def _use_{i}(): return helper()\n"
+        (tmp_path / "consumer.py").write_text(body)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["utils.py"])
+        assert "Private callers:" not in out, (
+            f"'Private callers:' must not appear for only 2 callers; got:\n{out}"
+        )
+
+
+class TestFocusCrossFileCallees:
+    """S103: Focus 'cross-file callees: N fns in M files' — wide dep scope signal."""
+
+    def test_cross_file_callees_shown_for_wide_scope_function(self, tmp_path):
+        """Seed function calling into 3+ distinct external files → 'cross-file callees:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        for i in range(4):
+            (tmp_path / f"dep_{i}.py").write_text(f"def util_{i}(): return {i}\n")
+        (tmp_path / "orchestrator.py").write_text(
+            "from dep_0 import util_0\n"
+            "from dep_1 import util_1\n"
+            "from dep_2 import util_2\n"
+            "from dep_3 import util_3\n"
+            "def run(): return util_0() + util_1() + util_2() + util_3()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "run")
+        assert "cross-file callees:" in out, (
+            f"Expected 'cross-file callees:' for fn calling into 4 files; got:\n{out}"
+        )
+
+    def test_cross_file_callees_absent_for_narrow_scope(self, tmp_path):
+        """Seed calling into only 1 external file → no 'cross-file callees:'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "helper.py").write_text("def a(): return 1\ndef b(): return 2\n")
+        (tmp_path / "main.py").write_text(
+            "from helper import a, b\ndef run(): return a() + b()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "run")
+        assert "cross-file callees:" not in out, (
+            f"'cross-file callees:' must not appear for fn calling into 1 file; got:\n{out}"
+        )
+
+
+class TestDiffScopeModules:
+    """S104: Diff 'scope: N modules' — count distinct dirs in diff for spread awareness."""
+
+    def test_scope_shown_for_cross_module_diff(self, tmp_path):
+        """Diff touching 3+ different directories → 'scope: N modules' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        for mod in ["auth", "users", "billing"]:
+            mod_dir = tmp_path / mod
+            mod_dir.mkdir()
+            (mod_dir / "core.py").write_text(f"def {mod}_fn(): return 1\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["auth/core.py", "users/core.py", "billing/core.py"])
+        assert "scope:" in out and "modules" in out, (
+            f"Expected 'scope: N modules' for 3-dir diff; got:\n{out}"
+        )
+
+    def test_scope_absent_for_single_module_diff(self, tmp_path):
+        """Diff touching only 1 directory → no 'scope:' line."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        mod_dir = tmp_path / "api"
+        mod_dir.mkdir()
+        (mod_dir / "routes.py").write_text("def list_users(): return []\n")
+        (mod_dir / "models.py").write_text("def get_user(id): return id\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["api/routes.py", "api/models.py"])
+        assert "scope:" not in out or "modules" not in out, (
+            f"'scope: N modules' must not appear for single-directory diff; got:\n{out}"
+        )
