@@ -917,9 +917,23 @@ def _bfs_expand(
                 caller_limit = 8 if depth == 0 else 5 if depth == 1 else 3
                 callee_limit = 8 if depth == 0 else 5 if depth == 1 else 3
                 _imp_key = lambda s: -_cached_importance(s)
-                for caller in sorted(graph.callers_of(sym.id), key=_imp_key)[:caller_limit]:
-                    if caller.id not in seen_ids:
-                        next_level.append((caller, depth + 1))
+                # Hub suppression: skip expanding callers of widely-used utility symbols.
+                # A symbol used across 15+ unique files is a global hub — expanding its
+                # callers would flood the BFS with irrelevant cross-module context.
+                # Callees and children are still expanded (those are the symbol's dependencies).
+                _expand_callers = True
+                if depth >= 1:
+                    _hub_cfiles = {
+                        graph.symbols[cid].file_path
+                        for cid in graph._callers.get(sym.id, [])
+                        if cid in graph.symbols and graph.symbols[cid].file_path != sym.file_path
+                    }
+                    if len(_hub_cfiles) >= 15:
+                        _expand_callers = False
+                if _expand_callers:
+                    for caller in sorted(graph.callers_of(sym.id), key=_imp_key)[:caller_limit]:
+                        if caller.id not in seen_ids:
+                            next_level.append((caller, depth + 1))
                 for callee in sorted(graph.callees_of(sym.id), key=_imp_key)[:callee_limit]:
                     if callee.id not in seen_ids:
                         next_level.append((callee, depth + 1))
@@ -1279,6 +1293,7 @@ def _build_symbol_block_lines(
     # Blast annotation for depth-0 seed: number of unique files that call this symbol.
     # Gives agents immediate risk context — "[blast: 7 files]" = 7 files need review.
     _blast_ann = ""
+    _hub_ann = ""
     _age_ann = ""
     if depth == 0:
         _blast_files = {c.file_path for c in graph.callers_of(sym.id) if c.file_path != sym.file_path}
@@ -1304,7 +1319,17 @@ def _build_symbol_block_lines(
                     _age_ann = f" [age: {_days}d]"
         except Exception:
             pass
-    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_age_ann} — {loc}{orbit_note}"]
+    elif depth >= 1:
+        # Hub annotation: deeply-imported utilities used across 15+ files.
+        # Tells agents this is a widely-shared symbol — don't expect to find
+        # all its callers in the focus output (BFS suppresses their expansion).
+        _hub_caller_files = {
+            c.file_path for c in graph.callers_of(sym.id)
+            if c.file_path != sym.file_path
+        }
+        if len(_hub_caller_files) >= 15:
+            _hub_ann = f" [hub: {len(_hub_caller_files)} files]"
+    block_lines = [f"{prefix} {sym.kind.value} {sym.qualified_name}{_blast_ann}{_hub_ann}{_age_ann} — {loc}{orbit_note}"]
     # Container annotation for methods: show parent class with caller count.
     # Helps agents understand the class context of the focused method.
     if depth == 0 and sym.kind.value == "method" and "::" in sym.id:
