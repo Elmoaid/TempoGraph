@@ -26766,3 +26766,68 @@ class TestDeadFactoryS557:
         assert "dead factories" not in out, (
             f"'dead factories' must not appear when factories are imported; got:\n{out}"
         )
+
+
+# ── S558: Deprecated name focused ─────────────────────────────────────────────
+
+class TestDeprecatedNameFocusedS558:
+    """S558: Focused symbol with deprecation marker in name emits deprecated name signal."""
+
+    def test_deprecated_name_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "api.py").write_text(
+            "def process_legacy(data): return data\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, query="process_legacy")
+        assert "deprecated name" in out, (
+            f"Expected 'deprecated name' for function named process_legacy; got:\n{out}"
+        )
+
+    def test_deprecated_name_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "api.py").write_text(
+            "def process_data(data): return data\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, query="process_data")
+        assert "deprecated name" not in out, (
+            f"'deprecated name' must not appear for a non-deprecated function name; got:\n{out}"
+        )
+
+
+# ── S559: Single entry point overview ─────────────────────────────────────────
+
+class TestSingleEntryPointOverviewS559:
+    """S559: Exactly 1 recognized entry point emits single entry point signal."""
+
+    def test_single_entry_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "core.py").write_text("def process(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single entry point" in out, (
+            f"Expected 'single entry point' for repo with one main.py; got:\n{out}"
+        )
+
+    def test_single_entry_absent_multiple(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # Two entry files → not "single"
+        (tmp_path / "main.py").write_text("def main(): pass\n")
+        (tmp_path / "cli.py").write_text("def main(): pass\n")
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single entry point" not in out, (
+            f"'single entry point' must not appear when multiple entry points exist; got:\n{out}"
+        )
