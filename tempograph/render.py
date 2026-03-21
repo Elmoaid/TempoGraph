@@ -1279,6 +1279,21 @@ def _build_symbol_block_lines(
                     _c_ann = f" ({_c_callers})" if _c_callers >= 1 else ""
                     _child_strs.append(f"{c.kind.value[:4]} {c.name}{_c_ann}")
                 block_lines.append(f"{indent}  contains: {', '.join(_child_strs)}")
+
+            # Implementors: classes/traits that extend or implement this symbol.
+            # Shown only for CLASS/INTERFACE seeds to surface the inheritance fanout.
+            if sym.kind in (SymbolKind.CLASS, SymbolKind.INTERFACE):
+                _subtypes = graph.subtypes_of(sym.name)
+                if _subtypes:
+                    _sub_strs = [
+                        f"{s.qualified_name} ({s.file_path.rsplit('/', 1)[-1]}:{s.line_start})"
+                        for s in _subtypes[:8]
+                    ]
+                    _overflow_sub = len(_subtypes) - 8
+                    _sub_line = f"{indent}  implementors: {', '.join(_sub_strs)}"
+                    if _overflow_sub > 0:
+                        _sub_line += f" (+{_overflow_sub} more)"
+                    block_lines.append(_sub_line)
     return block_lines
 
 
