@@ -3578,6 +3578,23 @@ def _signals_focused_fn_advanced(
                     f" — production code doesn't use this file; verify it's not dead"
                 )
 
+    # S750: No docstring and widely called — focused function/method lacks a docstring but has many callers.
+    # Widely-called functions without documentation force every caller to read the source;
+    # adding a docstring reduces onboarding friction and prevents misuse.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim750 = _seed_syms[0]
+        if (
+            _prim750.kind.value in ("function", "method")
+            and not _is_test_file(_prim750.file_path)
+            and not _prim750.doc
+        ):
+            _callers750 = [c for c in graph.callers_of(_prim750.id) if c.file_path != _prim750.file_path]
+            if len(_callers750) >= 5:
+                lines.append(
+                    f"\nno docstring: {_prim750.name} is called from {len(_callers750)} files but has no docstring"
+                    f" — widely-used function without docs; add a docstring to reduce caller friction"
+                )
+
     return lines
 
 

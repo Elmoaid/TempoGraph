@@ -2330,5 +2330,18 @@ def _collect_hotspots_signals(
             f" — callers don't see the cost; consider memoization"
         )
 
+    # S754: Single-caller hotspot — the top hotspot has exactly 1 cross-file caller.
+    # A hotspot with only one caller is tightly coupled to that single consumer;
+    # it could be inlined into its caller or at least co-located in the same module.
+    if scores:
+        _top754 = scores[0][1]
+        if _top754 is not None and not _is_test_file(_top754.file_path):
+            _cross754 = [c for c in graph.callers_of(_top754.id) if c.file_path != _top754.file_path]
+            if len(_cross754) == 1:
+                out.append(
+                    f"\nsingle-caller hotspot: {_top754.name} is the top hotspot but has only 1 cross-file caller"
+                    f" ({_cross754[0].name}) — tight coupling; consider inlining or co-locating"
+                )
+
     return out
 

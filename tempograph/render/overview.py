@@ -2929,6 +2929,21 @@ def _signals_async_oop(
                     )
                     break
 
+    # S751: Single test file — the repo has source symbols but only one test file.
+    # A single test file often means tests were added as an afterthought and coverage
+    # is shallow; as the codebase grows, one test file becomes a maintenance bottleneck.
+    _all_test_fps751 = [fp for fp in graph.files if _is_test_file(fp)]
+    _src_syms751 = [
+        s for s in graph.symbols.values()
+        if not _is_test_file(s.file_path) and s.parent_id is None
+        and s.kind.value not in ("unknown", "module")
+    ]
+    if len(_all_test_fps751) == 1 and len(_src_syms751) >= 5:
+        lines.append(
+            f"single test file: all tests in {_all_test_fps751[0].rsplit('/', 1)[-1]}"
+            f" — one test file for {len(_src_syms751)} source symbols; split by module as the project grows"
+        )
+
     return lines
 
 
