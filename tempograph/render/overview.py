@@ -2496,6 +2496,23 @@ def _signals_async_oop(
             f" — consider organizing into packages as the codebase grows"
         )
 
+    # S607: High dead symbol ratio — more than 30% of all indexed symbols have no callers.
+    # A high fraction of unreferenced symbols indicates code accumulation without pruning;
+    # the codebase grows but cleanup is neglected.
+    _s607_all_syms = [
+        sym for sym in graph.symbols.values()
+        if not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method", "class")
+    ]
+    if len(_s607_all_syms) >= 10:
+        _s607_dead = [s for s in _s607_all_syms if not graph.callers_of(s.id)]
+        _s607_ratio = len(_s607_dead) / len(_s607_all_syms)
+        if _s607_ratio > 0.30:
+            lines.append(
+                f"high dead ratio: {len(_s607_dead)}/{len(_s607_all_syms)} symbols"
+                f" ({_s607_ratio:.0%}) have no callers — accumulation without pruning; schedule a dead-code pass"
+            )
+
     return lines
 
 

@@ -1932,5 +1932,18 @@ def _collect_hotspots_signals(
                 f" — consider extracting to a shared fixture or helper module"
             )
 
+    # S610: Non-Python hotspot — top hotspot file is not a Python file.
+    # When the highest-churn symbol is in a JS/TS/Go/Rust file, agents should apply
+    # language-specific refactoring guidance rather than Python patterns.
+    if scores:
+        _top610 = scores[0][1]
+        _fp610 = _top610.file_path.replace("\\", "/")
+        if not _is_test_file(_fp610) and not _fp610.endswith(".py"):
+            _ext610 = _fp610.rsplit(".", 1)[-1] if "." in _fp610 else "unknown"
+            out.append(
+                f"\nnon-Python hotspot: {_top610.name} is in a {_ext610} file"
+                f" — apply {_ext610}-specific refactoring patterns rather than Python conventions"
+            )
+
     return out
 

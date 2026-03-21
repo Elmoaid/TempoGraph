@@ -2100,6 +2100,26 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — never called; the use case they were written for never materialized; remove or promote"
         )
 
+    # S611: Dead large class — unused class spanning 30+ lines.
+    # A large class that is never instantiated or imported represents significant invested effort
+    # that never paid off; it likely contains stale logic that diverged from the live codebase.
+    _dead_large611 = [
+        s for s in dead
+        if s.kind.value == "class"
+        and s.line_count >= 30
+        and not _is_test_file(s.file_path)
+    ]
+    if _dead_large611:
+        _large_names611 = ", ".join(
+            f"{s.name} ({s.line_count}L)" for s in _dead_large611[:3]
+        )
+        if len(_dead_large611) > 3:
+            _large_names611 += f" +{len(_dead_large611) - 3} more"
+        lines.append(
+            f"dead large class: {len(_dead_large611)} unused class(es) over 30 lines ({_large_names611})"
+            f" — significant effort invested but never used; stale logic likely; safe to remove"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
