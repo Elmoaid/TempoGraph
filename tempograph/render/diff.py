@@ -765,4 +765,24 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — environment/deployment files require ops coordination"
         )
 
+
+    # S254: Migration file in diff — diff includes database migration files.
+    # DB migrations are irreversible in production; they require DBA review and
+    # deployment coordination separate from regular code review.
+    _s254_mig_dirs = ("migrations/", "migration/", "alembic/versions/", "db/migrate/",
+                      "db/migrations/", "database/migrations/")
+    _s254_mig_files = [
+        fp for fp in list(normalized) + [f for f in changed_files if f not in normalized]
+        if any(d in fp.lower().replace("\\", "/") for d in _s254_mig_dirs)
+    ]
+    if _s254_mig_files:
+        _mig_names = [fp.rsplit("/", 1)[-1] for fp in _s254_mig_files[:3]]
+        _mig_str = ", ".join(_mig_names)
+        if len(_s254_mig_files) > 3:
+            _mig_str += f" +{len(_s254_mig_files) - 3} more"
+        lines.append(
+            f"migration file: {_mig_str} in diff"
+            f" — DB migrations are irreversible; coordinate with DBA before deploy"
+        )
+
     return "\n".join(lines)

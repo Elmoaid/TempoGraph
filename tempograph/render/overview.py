@@ -49,6 +49,8 @@ def _find_entry_points(graph: Tempo) -> list[str]:
         path_parts = set(sym.file_path.replace("\\", "/").split("/"))
         if path_parts & _EXAMPLE_PATH_PARTS:
             continue
+        if _is_test_file(sym.file_path):
+            continue
         if sym.name in ("main", "app", "run_server", "create_app", "cli"):
             entries.append(f"{sym.file_path}::{sym.name}")
 
@@ -1423,6 +1425,28 @@ def render_overview(graph: Tempo) -> str:
             _s243_str += f" +{len(_s243_detected) - 3} more"
         lines.append(f"frameworks: {_s243_str}")
 
+    # S259: Global-state managers — 3+ source classes whose names end in Manager, Registry,
+    # Pool, Cache, or Singleton. These often hold global state and are risky to change.
+    # Only shown when 3+ such classes found.
+    _s255_mgr_suffixes = ("manager", "registry", "pool", "cache", "singleton",
+                          "store", "repository", "repo", "hub", "bus", "broker",
+                          "container", "context", "session")
+    _s255_mgr_classes = [
+        sym for sym in graph.symbols.values()
+        if sym.kind.value == "class"
+        and not _is_test_file(sym.file_path)
+        and any(sym.name.lower().endswith(sfx) for sfx in _s255_mgr_suffixes)
+    ]
+    if len(_s255_mgr_classes) >= 3:
+        _mgr_names = [s.name for s in _s255_mgr_classes[:3]]
+        _mgr_str = ", ".join(_mgr_names)
+        if len(_s255_mgr_classes) > 3:
+            _mgr_str += f" +{len(_s255_mgr_classes) - 3} more"
+        lines.append(
+            f"global-state classes: {len(_s255_mgr_classes)} managers/registries ({_mgr_str})"
+            f" — likely hold global state; test initialization and teardown carefully"
+        )
+
     # S252: God symbol — single non-test symbol called from 10+ distinct files.
     # One function/class/module that everything depends on is an architectural bottleneck.
     # Only shown when 1+ symbol has 10+ distinct non-test caller files.
@@ -1467,6 +1491,27 @@ def render_overview(graph: Tempo) -> str:
             f"api-heavy: {len(_s247_api_files)} API/route files ({_s247_str})"
             f" — changes often need aligned updates in routes, schemas, and handlers"
         )
+
+
+    # S258: High coupling density — average imports-per-file exceeds 5 for non-trivial repos.
+    # Dense coupling makes refactoring expensive; each file change can cascade unpredictably.
+    # Only shown for repos with 10+ source files and avg fan-in > 5.
+    _s258_code_files = [
+        fp for fp in graph.files
+        if not _is_test_file(fp) and graph.files[fp].language.value in _CODE_LANGS
+    ]
+    if len(_s258_code_files) >= 10:
+        _s258_total_imports = sum(
+            1 for e in graph.edges
+            if e.kind.value == "imports"
+            and not _is_test_file(e.source_id)
+        )
+        _s258_avg = _s258_total_imports / len(_s258_code_files)
+        if _s258_avg >= 5:
+            lines.append(
+                f"high coupling: avg {_s258_avg:.1f} imports/file"
+                f" — dense dependency graph; refactors cascade unpredictably"
+            )
 
         # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)

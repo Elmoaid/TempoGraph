@@ -706,6 +706,24 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — callers must await; sync conversion breaks all call sites"
         )
 
+    # S261: Platform-specific blast — blast target file name indicates it's platform-specific.
+    # Platform-specific code needs testing on that exact platform (CI may not cover it).
+    # Only shown when file name contains a platform indicator.
+    _s254_platform_markers = (
+        "_windows", "_win32", "_win64", "_linux", "_darwin", "_macos", "_osx",
+        "_posix", "_unix", "_freebsd", "_android", "_ios", "_arm", "_x86",
+    )
+    _s254_base254 = file_path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    _s254_platform = next(
+        (m.lstrip("_") for m in _s254_platform_markers if _s254_base254.endswith(m)),
+        None
+    )
+    if _s254_platform:
+        lines.append(
+            f"platform-specific: {file_path.rsplit('/', 1)[-1]} targets {_s254_platform}"
+            f" — test on that platform; CI may not cover it"
+        )
+
     # S251: Well-tested blast — blast target's exported symbols have many test callers.
     # Positive signal: high test coverage means refactoring here has a safety net.
     # Only shown when 5+ distinct test files call into this blast target.
@@ -718,6 +736,21 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
         lines.append(
             f"well-tested: {len(_s251_test_caller_files)} test file(s) cover this module"
             f" — high safety net; refactoring here is lower risk"
+        )
+
+
+    # S256: High fan-out blast — blast target imports from many other modules.
+    # A file with wide dependencies is harder to refactor in isolation; changes
+    # often require updates across all its upstream dependencies.
+    _s256_imports = [
+        e for e in graph.edges
+        if e.kind.value == "imports" and e.source_id == file_path
+    ]
+    _s256_import_count = len({e.target_id for e in _s256_imports})
+    if _s256_import_count >= 6:
+        lines.append(
+            f"high fan-out: imports from {_s256_import_count} modules"
+            f" — wide dependency surface; refactoring this file requires many upstream checks"
         )
 
     if not importers and not external_callers and not render_targets:
