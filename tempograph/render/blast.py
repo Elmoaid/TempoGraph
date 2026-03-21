@@ -1100,6 +1100,29 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — value/rename changes may silently break consumers that hardcode expected values"
         )
 
+    # S389: Database model blast — blast target is a DB model/schema file.
+    # Database model files define the data contract between application and database;
+    # schema changes require migrations and may break queries throughout the codebase.
+    _fp389 = file_path.rsplit("/", 1)[-1].lower()
+    _dir389 = file_path.lower()
+    _db_patterns389 = (
+        "model", "schema", "entity", "table", "migration", "orm",
+        "dao", "repository", "activerecord",
+    )
+    _is_db389 = (
+        any(p in _fp389 for p in _db_patterns389)
+        and not _is_test_file(file_path)
+        and not any(
+            skip in _fp389 for skip in ("view", "controller", "route", "api")
+        )
+    )
+    if _is_db389 and importers:
+        lines.append(
+            f"DB model blast: {file_path.rsplit('/', 1)[-1]} defines a data model"
+            f" imported by {len(importers)} files"
+            f" — schema changes require database migrations; review all ORM queries in consumers"
+        )
+
     # S383: Test fixture blast — blast target is a shared test fixture/factory file.
     # Test fixture files are imported by many tests; changes break test isolation and
     # can cause cascading failures unrelated to the code being tested.
