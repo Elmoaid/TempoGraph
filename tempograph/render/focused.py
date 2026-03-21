@@ -3769,6 +3769,25 @@ def _signals_focused_fn_advanced(
                 f" — verify all callers have migrated to the replacement before modifying"
             )
 
+    # S816: Zero-argument function focus — focused function takes no parameters at all.
+    # Parameter-free functions can only read from global/module state or constants;
+    # they are implicitly coupled to their environment and hard to test in isolation.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim816 = _seed_syms[0]
+        if (
+            _prim816.kind.value in ("function", "method")
+            and _prim816.parent_id is None
+            and not _is_test_file(_prim816.file_path)
+        ):
+            import re as _re816
+            import linecache as _lc816
+            _def_line816 = _lc816.getline(_prim816.file_path, _prim816.line_start).strip()
+            if _re816.search(r"\bdef\s+\w+\s*\(\s*\)\s*(?:->|:)", _def_line816):
+                lines.append(
+                    f"\nzero-argument function: {_prim816.name} takes no parameters"
+                    f" — implicitly couples to global/module state; hard to test in isolation"
+                )
+
     return lines
 
 
