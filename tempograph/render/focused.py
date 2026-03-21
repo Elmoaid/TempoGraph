@@ -3740,6 +3740,23 @@ def _signals_focused_fn_advanced(
                     f" — encapsulation violation; consider making it public or restricting callers"
                 )
 
+    # S804: Entry point focus — focused symbol is a well-known entry point name.
+    # Entry point functions initialize the entire application; changing them can break
+    # startup sequencing, CLI argument parsing, and any framework-level setup.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim804 = _seed_syms[0]
+        _ep_names804 = frozenset(("main", "run", "start", "app", "entry", "create_app", "cli", "serve"))
+        if (
+            _prim804.kind.value in ("function", "method")
+            and _prim804.parent_id is None
+            and _prim804.name in _ep_names804
+            and not _is_test_file(_prim804.file_path)
+        ):
+            lines.append(
+                f"\nentry point focus: {_prim804.name} is a well-known entry point"
+                f" — changes affect startup sequencing and all initialization logic"
+            )
+
     return lines
 
 

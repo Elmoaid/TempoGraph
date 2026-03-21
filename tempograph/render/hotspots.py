@@ -2474,5 +2474,23 @@ def _collect_hotspots_signals(
                     f" and is the top hotspot — god object pattern; split responsibilities before modifying"
                 )
 
+    # S808: Async hotspot — top hotspot is an async function.
+    # Async functions introduce concurrency; when an async function is also the highest-risk
+    # hotspot, bugs there can manifest as race conditions or non-deterministic failures.
+    if scores:
+        _top808 = scores[0][1]
+        if _top808 is not None and not _is_test_file(_top808.file_path):
+            _src808 = ""
+            try:
+                import linecache as _lc808
+                _src808 = _lc808.getline(_top808.file_path, _top808.line_start).strip()
+            except Exception:
+                pass
+            if _src808.startswith("async def"):
+                out.append(
+                    f"\nasync hotspot: {_top808.name} is an async function ranked as the top hotspot"
+                    f" — concurrency bugs here manifest as race conditions; review await chains carefully"
+                )
+
     return out
 

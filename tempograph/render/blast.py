@@ -2080,6 +2080,20 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — changes here affect all registered handlers, including external plugins"
         )
 
+    # S806: High fan-out blast — the blast target calls 10+ symbols in other files.
+    # Files with many outbound calls create dense dependency graphs; any change
+    # requires tracing effects through many call paths simultaneously.
+    _callee_set806: set[str] = set()
+    for _other806 in graph.symbols.values():
+        if _other806.file_path != _fp589:
+            if any(c.file_path == _fp589 for c in graph.callers_of(_other806.id)):
+                _callee_set806.add(_other806.id)
+    if len(_callee_set806) >= 10:
+        lines.append(
+            f"high fan-out blast: {_fp589.rsplit('/', 1)[-1]} calls {len(_callee_set806)} external symbols"
+            f" — dense dependency; changes require tracing effects through many call paths"
+        )
+
     return "\n".join(lines)
 
 
