@@ -28815,3 +28815,207 @@ class TestDeadUtilityFunctionS605:
         )
 
 
+
+
+class TestLargeSymbolFocusedS606:
+    """S606: Focused symbol spanning 50+ lines emits large-symbol signal."""
+
+    def test_large_symbol_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        body = "def big_function():\n" + "    x = 1\n" * 55
+        (tmp_path / "fat.py").write_text(body)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "big_function")
+        assert "large symbol" in out, (
+            f"Expected 'large symbol' for 56-line function; got:\n{out}"
+        )
+
+    def test_large_symbol_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "small.py").write_text("def tiny(): return 1\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "tiny")
+        assert "large symbol" not in out, (
+            f"'large symbol' must not appear for 1-line function; got:\n{out}"
+        )
+
+
+class TestHighDeadRatioOverviewS607:
+    """S607: >30% symbols with no callers emits high-dead-ratio signal."""
+
+    def test_high_dead_ratio_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 10 functions, only 1 called → 90% dead
+        src = "\n".join(f"def dead_{i}(): pass" for i in range(10))
+        src += "\ndef active(): pass\n"
+        (tmp_path / "main.py").write_text(src)
+        (tmp_path / "app.py").write_text(
+            "from main import active\ndef run(): active()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "high dead ratio" in out, (
+            f"Expected 'high dead ratio' for 90% uncalled symbols; got:\n{out}"
+        )
+
+    def test_high_dead_ratio_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # All lib functions called from run(); run() exercised by test
+        imports = "\n".join(f"from lib import fn_{i}" for i in range(10))
+        calls = "\n    ".join(f"fn_{i}()" for i in range(10))
+        (tmp_path / "lib.py").write_text(
+            "\n".join(f"def fn_{i}(): pass" for i in range(10)) + "\n"
+        )
+        (tmp_path / "app.py").write_text(
+            f"{imports}\ndef run():\n    {calls}\n"
+        )
+        (tmp_path / "test_app.py").write_text(
+            "from app import run\ndef test_run(): run()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "high dead ratio" not in out, (
+            f"'high dead ratio' must not appear when all symbols are called; got:\n{out}"
+        )
+
+
+class TestHighChurnPatternBlastS608:
+    """S608: Blast target with handler/router/controller name emits high-churn-pattern signal."""
+
+    def test_high_churn_pattern_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "user_handler.py").write_text(
+            "def handle_request(req): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from user_handler import handle_request\ndef run(): handle_request({})\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "user_handler.py")
+        assert "high-churn pattern" in out, (
+            f"Expected 'high-churn pattern' for user_handler.py; got:\n{out}"
+        )
+
+    def test_high_churn_pattern_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "high-churn pattern" not in out, (
+            f"'high-churn pattern' must not appear for utils.py; got:\n{out}"
+        )
+
+
+class TestWideDiffS609:
+    """S609: Diff with 20+ files emits wide-diff signal."""
+
+    def test_wide_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, [f"module_{i}.py" for i in range(22)])
+        assert "wide diff" in out, (
+            f"Expected 'wide diff' for 22-file changeset; got:\n{out}"
+        )
+
+    def test_wide_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "utils.py"])
+        assert "wide diff" not in out, (
+            f"'wide diff' must not appear for 2-file changeset; got:\n{out}"
+        )
+
+
+class TestNonPythonHotspotS610:
+    """S610: Top hotspot in a non-Python file emits non-Python-hotspot signal."""
+
+    def test_non_python_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.js").write_text(
+            "function process(x) { return x; }\n"
+        )
+        for i in range(4):
+            (tmp_path / f"use_{i}.js").write_text(
+                f"const {{ process }} = require('./core');\nfunction fn{i}() {{ process({i}); }}\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "non-Python hotspot" in out, (
+            f"Expected 'non-Python hotspot' for JS top hotspot; got:\n{out}"
+        )
+
+    def test_non_python_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text("def process(x): return x\n")
+        (tmp_path / "app.py").write_text(
+            "from core import process\ndef run(): process(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "non-Python hotspot" not in out, (
+            f"'non-Python hotspot' must not appear for Python top hotspot; got:\n{out}"
+        )
+
+
+class TestDeadLargeClassS611:
+    """S611: Unused class spanning 30+ lines emits dead-large-class signal."""
+
+    def test_dead_large_class_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        body = "class BigUnused:\n" + "".join(
+            f"    def method_{i}(self): pass\n" for i in range(32)
+        )
+        (tmp_path / "legacy.py").write_text(body)
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead large class" in out, (
+            f"Expected 'dead large class' for unused 33-line class; got:\n{out}"
+        )
+
+    def test_dead_large_class_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        body = "class BigActive:\n" + "".join(
+            f"    def method_{i}(self): pass\n" for i in range(32)
+        )
+        (tmp_path / "core.py").write_text(body)
+        (tmp_path / "app.py").write_text(
+            "from core import BigActive\nobj = BigActive()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead large class" not in out, (
+            f"'dead large class' must not appear when class is imported; got:\n{out}"
+        )
+
+
+# ── S606: Large symbol focused ─────────────────────────────────────────────────
+
