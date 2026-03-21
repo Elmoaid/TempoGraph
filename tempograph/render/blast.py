@@ -1307,6 +1307,32 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — any signature change is a breaking change; version or deprecate before removing"
         )
 
+    # S449: Multi-package blast — blast target is imported across 3+ distinct package directories.
+    # When a file is used across many packages, it is an implicit shared library; any
+    # incompatible change requires synchronized updates in every depending package.
+    _s449_importer_dirs: set[str] = set()
+    for _imp449 in importers:
+        _dir449 = _imp449.rsplit("/", 1)[0] if "/" in _imp449 else ""
+        _s449_importer_dirs.add(_dir449)
+    if len(_s449_importer_dirs) >= 3:
+        lines.append(
+            f"multi-package blast: imported from {len(_s449_importer_dirs)} distinct directories"
+            f" — treat as shared library; incompatible changes require coordinated updates across all packages"
+        )
+
+    # S453: Middleware blast — blast target is a middleware or interceptor component.
+    # Middleware sits in the request/response pipeline and processes every call;
+    # any bug or performance regression has a global impact, not just one feature.
+    _s453_mw_keywords = ("middleware", "interceptor", "filter", "pipeline", "decorator", "hook")
+    _s453_mw_name = file_path.lower().replace("\\", "/")
+    _s453_is_mw = any(kw in _s453_mw_name for kw in _s453_mw_keywords)
+    if _s453_is_mw and importers:
+        lines.append(
+            f"middleware blast: {file_path.rsplit('/', 1)[-1]} is a middleware/interceptor"
+            f" used by {len(importers)} file(s)"
+            f" — bugs or performance regressions affect every request through this pipeline"
+        )
+
     return "\n".join(lines)
 
 

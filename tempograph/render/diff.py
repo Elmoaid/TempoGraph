@@ -19,8 +19,24 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
                     normalized.add(fp)
                     break
 
+    # S447: Config-only change — all changed files are settings/config files.
+    # Moved here (before early return) so it fires even when config files are not
+    # in the graph (config files are often not parsed as source files).
+    _s447_config_keywords = ("config", "settings", "conf", "env", "dotenv", "secrets", "options")
+    _s447_non_config = [
+        f for f in changed_files
+        if not any(kw in f.rsplit("/", 1)[-1].lower() for kw in _s447_config_keywords)
+        and f.rsplit("/", 1)[-1].lower() not in (".env", ".env.example")
+    ]
+    if changed_files and not _s447_non_config:
+        _cfg_names447 = ", ".join(f.rsplit("/", 1)[-1] for f in changed_files[:2])
+        lines.append(
+            f"config-only diff: all {len(changed_files)} changed file(s) are configuration ({_cfg_names447})"
+            f" — config changes affect runtime behavior silently; verify flag interactions and defaults"
+        )
+
     if not normalized:
-        return f"None of the changed files found in graph: {changed_files}"
+        return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
     affected_symbols: list[Symbol] = []
     for fp in sorted(normalized):
@@ -1341,6 +1357,25 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
         lines.append(
             f"serialization change: {_ser_name441} in diff"
             f" — wire-format changes break all existing consumers; bump version or add migration"
+        )
+
+    # S454: Auth/security diff — diff touches authentication, authorization, or cryptography code.
+    # Auth changes are high-risk: a logic error can grant unauthorized access or lock out
+    # legitimate users. These files need security review even for seemingly minor changes.
+    _s454_auth_keywords = (
+        "auth", "login", "logout", "password", "token", "session", "permission",
+        "credential", "secret", "jwt", "oauth", "crypto", "encrypt", "hash",
+        "access_control", "acl", "rbac",
+    )
+    _s454_auth_files = [
+        f for f in changed_files
+        if any(kw in f.lower().replace("-", "_") for kw in _s454_auth_keywords)
+    ]
+    if _s454_auth_files:
+        _auth_names454 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s454_auth_files[:2])
+        lines.append(
+            f"auth/security change: {_auth_names454} in diff"
+            f" — authentication/cryptography logic; requires security review before merging"
         )
 
     return "\n".join(lines)
