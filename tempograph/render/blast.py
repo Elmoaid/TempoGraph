@@ -1916,6 +1916,16 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" in the directory tree — hard-to-find file; consider flattening"
         )
 
+    # S716: Config file blast — the blast target is a config/settings/constants/exceptions file.
+    # Configuration files often have many importers because constants and settings are used
+    # globally; editing them can have unexpected wide impact across the entire codebase.
+    _blast_basename716 = _fp589.replace("\\", "/").rsplit("/", 1)[-1]
+    if _blast_basename716 in {"config.py", "settings.py", "constants.py", "exceptions.py", "errors.py"}:
+        lines.append(
+            f"config file blast: {_blast_basename716} is a shared config/constants file"
+            f" — changes here propagate to all importers; review blast radius carefully"
+        )
+
     return "\n".join(lines)
 
 
