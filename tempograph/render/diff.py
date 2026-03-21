@@ -349,6 +349,17 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — verify tests reflect correct expected behavior; no production code changed"
         )
 
+    # S717: Same-directory diff — all changed files are in the same directory.
+    # A diff confined to a single directory is likely cohesive (one module or feature);
+    # cross-cutting concerns are unlikely, but shared utility files outside the dir may be missed.
+    if len(changed_files) >= 2:
+        _dirs717 = [f.replace("\\", "/").rsplit("/", 1)[0] for f in changed_files]
+        if len(set(_dirs717)) == 1:
+            lines.append(
+                f"same-directory diff: all {len(changed_files)} changed files are in {_dirs717[0]}/"
+                f" — cohesive change; cross-module dependencies unlikely but verify shared utils"
+            )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 

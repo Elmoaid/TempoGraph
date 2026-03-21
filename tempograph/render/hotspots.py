@@ -2242,5 +2242,17 @@ def _collect_hotspots_signals(
                     f" — dependency accumulator; verify it's not doing too much"
                 )
 
+    # S718: Deprecated hotspot — the top hotspot's name contains "old", "legacy", or "deprecated".
+    # A deprecated hotspot is still being called frequently despite being marked for removal;
+    # high call volume on deprecated code signals migration is incomplete or callers are stale.
+    if scores and scores[0]:
+        _top718 = scores[0][1]
+        if _top718 is not None and any(kw in _top718.name.lower() for kw in ("old", "legacy", "deprecated")):
+            _callers718 = graph.callers_of(_top718.id)
+            out.append(
+                f"\ndeprecated hotspot: {_top718.name} is a top hotspot but looks deprecated"
+                f" ({len(_callers718)} callers) — migration is incomplete; audit callers and remove"
+            )
+
     return out
 
