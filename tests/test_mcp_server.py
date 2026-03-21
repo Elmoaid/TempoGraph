@@ -10525,3 +10525,50 @@ class TestDeadCodeExportedDeadRatio:
         assert "exported:" not in out or "public symbols dead" not in out, (
             f"'exported: N/M public symbols dead' must not appear for <20% exported dead; got:\n{out}"
         )
+
+
+class TestOverviewOrphanModules:
+    """S129: Overview — 'orphan modules: dir1/, dir2/' for isolated top-level dirs."""
+
+    def test_orphan_modules_shown(self, tmp_path):
+        """When 2+ top-level dirs are never imported, show orphan modules signal."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # Create 3 modules: core (imported), plugin_a and plugin_b (never imported)
+        (tmp_path / "core").mkdir()
+        (tmp_path / "core" / "__init__.py").write_text("")
+        (tmp_path / "core" / "main.py").write_text("def core_fn():\n    pass\n")
+        (tmp_path / "plugin_a").mkdir()
+        (tmp_path / "plugin_a" / "__init__.py").write_text("")
+        (tmp_path / "plugin_a" / "tool.py").write_text("def tool_fn():\n    pass\n")
+        (tmp_path / "plugin_b").mkdir()
+        (tmp_path / "plugin_b" / "__init__.py").write_text("")
+        (tmp_path / "plugin_b" / "util.py").write_text("def util_fn():\n    pass\n")
+        (tmp_path / "app.py").write_text(
+            "from core.main import core_fn\ndef main():\n    core_fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "orphan modules" in out, (
+            f"Expected 'orphan modules' for 2 isolated dirs; got:\n{out}"
+        )
+
+    def test_connected_modules_not_orphan(self, tmp_path):
+        """All interconnected modules must NOT be flagged as orphan."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        for mod in ["alpha", "beta", "gamma"]:
+            (tmp_path / mod).mkdir()
+            (tmp_path / mod / "__init__.py").write_text("")
+            (tmp_path / mod / "lib.py").write_text(f"def {mod}_fn():\n    pass\n")
+        (tmp_path / "main.py").write_text(
+            "from alpha.lib import alpha_fn\nfrom beta.lib import beta_fn\n"
+            "from gamma.lib import gamma_fn\ndef run():\n    alpha_fn(); beta_fn(); gamma_fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "orphan modules" not in out, (
+            f"'orphan modules' must not appear when all modules are connected; got:\n{out}"
+        )
