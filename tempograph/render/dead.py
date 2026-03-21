@@ -2760,6 +2760,24 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — removed route handlers; verify routing config no longer references them"
         )
 
+    # S809: Dead mixins — unused mixin classes.
+    # Mixin classes extend base class behaviour via multiple inheritance; dead mixins indicate
+    # abandoned feature extensions that may leave the inheritance chain with gaps.
+    _dead_mixins809 = [
+        s for s in dead
+        if s.kind.value == "class"
+        and "Mixin" in s.name
+        and not _is_test_file(s.file_path)
+    ]
+    if _dead_mixins809:
+        _mx_names809 = ", ".join(s.name for s in _dead_mixins809[:3])
+        if len(_dead_mixins809) > 3:
+            _mx_names809 += f" +{len(_dead_mixins809) - 3} more"
+        lines.append(
+            f"dead mixins: {len(_dead_mixins809)} unused mixin class(es) ({_mx_names809})"
+            f" — abandoned feature extensions; check if any base class still expects them"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
