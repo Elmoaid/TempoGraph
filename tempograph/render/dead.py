@@ -2406,6 +2406,29 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned construction logic; feature was never wired up"
         )
 
+    # S707: Dead event handlers — unused functions with event-handler naming patterns.
+    # Functions named on_*, handle_*, or *_handler are written to respond to events;
+    # if they're dead, the event they were designed for was removed or never wired up.
+    _handler_patterns707 = ("on_", "handle_")
+    _handler_suffix707 = ("_handler", "_listener", "_callback")
+    _dead_handlers707 = [
+        s for s in dead
+        if s.kind.value in ("function", "method")
+        and not _is_test_file(s.file_path)
+        and (
+            any(s.name.lower().startswith(pfx) for pfx in _handler_patterns707)
+            or any(s.name.lower().endswith(sfx) for sfx in _handler_suffix707)
+        )
+    ]
+    if _dead_handlers707:
+        _hdl_names707 = ", ".join(s.name for s in _dead_handlers707[:3])
+        if len(_dead_handlers707) > 3:
+            _hdl_names707 += f" +{len(_dead_handlers707) - 3} more"
+        lines.append(
+            f"dead event handlers: {len(_dead_handlers707)} unused handler function(s) ({_hdl_names707})"
+            f" — event was removed or never wired; remove or reconnect to event source"
+        )
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")

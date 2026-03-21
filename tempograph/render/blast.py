@@ -1887,6 +1887,25 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — single-symbol file; consider consolidating into a parent module"
             )
 
+    # S704: No external dependencies — blast target makes no cross-file calls.
+    # A file that calls nothing outside itself is self-contained; it has no dependency-induced
+    # blast propagation upward in the call chain, making changes lower risk.
+    _target_syms704 = [
+        s for s in graph.symbols.values()
+        if s.file_path == _fp589
+    ]
+    _has_ext_callees704 = any(
+        any(c.file_path != _fp589 for c in graph.callees_of(s.id))
+        for s in _target_syms704
+    )
+    if _target_syms704 and not _has_ext_callees704 and not _is_test_file(_fp589):
+        _importers704 = [f for f in graph.importers_of(_fp589) if f != _fp589]
+        if _importers704:  # only signal if there ARE importers (otherwise it's just dead code)
+            lines.append(
+                f"no external dependencies: {_fp589.rsplit('/', 1)[-1]} calls nothing outside itself"
+                f" — leaf module; changes are contained; only caller-side integration matters"
+            )
+
     return "\n".join(lines)
 
 
