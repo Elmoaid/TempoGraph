@@ -1702,6 +1702,19 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
                 elif _pct136 <= 25:
                     lines.append(f"\nexport ratio: {_exp136}/{len(_fns136)} fns public in {_fname136} — mostly internal module")
 
+    # S150: Class method count — when seed is a class, show total method count.
+    # Large classes (>= 8 methods) often violate single responsibility.
+    # Helps agents gauge refactor scope before touching a class.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim150 = _seed_syms[0]
+        if _prim150.kind.value == "class":
+            _methods150 = [
+                s for s in graph.children_of(_prim150.id)
+                if s.kind.value == "method"
+            ]
+            if len(_methods150) >= 8:
+                lines.append(f"\nclass size: {len(_methods150)} methods — large class, consider decomposition")
+
     return "\n".join(lines)
 
 
