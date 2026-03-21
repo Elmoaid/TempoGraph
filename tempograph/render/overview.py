@@ -1716,6 +1716,40 @@ def render_overview(graph: Tempo) -> str:
             f" — add baseline tests before any refactor"
         )
 
+    # S330: Data-pipeline codebase — 5+ files contain pipeline/processor/etl/transform patterns.
+    # Pipeline architectures require understanding the data contract between stages;
+    # changes to intermediate formats or schema break all downstream stages.
+    _s330_pipe_words = ("pipeline", "processor", "etl", "transform", "ingestion", "enrichment")
+    _s330_pipe_files: list[str] = []
+    for _fp330 in graph.files:
+        if _is_test_file(_fp330):
+            continue
+        _name330 = _fp330.lower().replace("\\", "/")
+        if any(w in _name330 for w in _s330_pipe_words):
+            _s330_pipe_files.append(_fp330)
+    if len(_s330_pipe_files) >= 5:
+        lines.append(
+            f"data-pipeline: {len(_s330_pipe_files)} pipeline/ETL files detected"
+            f" — understand data contract between stages before changing intermediate formats"
+        )
+
+    # S336: Class-dominant codebase — classes outnumber standalone functions by 2×.
+    # Class-heavy codebases (OOP-heavy) accumulate inheritance hierarchies, global state
+    # via attributes, and implicit coupling through shared base classes.
+    _s336_src_syms = [
+        s for s in graph.symbols.values()
+        if not _is_test_file(s.file_path)
+        and s.file_path in graph.files
+        and graph.files[s.file_path].language.value in _CODE_LANGS
+    ]
+    _s336_classes = [s for s in _s336_src_syms if s.kind.value == "class"]
+    _s336_fns = [s for s in _s336_src_syms if s.kind.value == "function"]
+    if len(_s336_fns) >= 5 and len(_s336_classes) >= len(_s336_fns) * 2:
+        lines.append(
+            f"class-dominant: {len(_s336_classes)} classes vs {len(_s336_fns)} functions"
+            f" — OOP-heavy; watch for implicit coupling via base classes and shared attributes"
+        )
+
         # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)
     if noisy:

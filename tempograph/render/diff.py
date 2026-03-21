@@ -977,4 +977,44 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — transitive changes invisible; re-run full test suite including integration tests"
         )
 
+    # S327: Security-sensitive diff — diff touches auth/password/token/crypto-related files.
+    # Security-critical code requires extra scrutiny: review for timing attacks, secrets
+    # in logs, and injection surface changes even if unit tests pass.
+    _s327_sec_words = (
+        "auth", "password", "passwd", "token", "secret", "crypto", "cipher",
+        "jwt", "oauth", "session", "credential", "permission", "rbac", "acl",
+    )
+    _s327_sec_files = [
+        f for f in changed_files
+        if any(w in f.lower() for w in _s327_sec_words)
+        and not _is_test_file(f)
+    ]
+    if _s327_sec_files:
+        _sec_names327 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s327_sec_files[:2])
+        lines.append(
+            f"security-sensitive: {_sec_names327} in diff"
+            f" — review for timing attacks, log leaks, and injection surface"
+        )
+
+    # S333: DB migration in diff — diff includes SQL or ORM migration files.
+    # Database migrations are often irreversible and affect all running instances;
+    # rollback requires explicit down-migration, which is frequently not tested.
+    _s333_mig_exts = {".sql", ".migration"}
+    _s333_mig_dirs = ("migrations", "migration", "alembic", "flyway", "liquibase", "db")
+    _s333_mig_files: list[str] = []
+    for _f333 in changed_files:
+        _name333 = _f333.rsplit("/", 1)[-1].lower()
+        _fp333_lower = _f333.lower().replace("\\", "/")
+        if (
+            any(_f333.endswith(ext) for ext in _s333_mig_exts)
+            or any(d + "/" in _fp333_lower or _fp333_lower.startswith(d + "/") for d in _s333_mig_dirs)
+        ):
+            _s333_mig_files.append(_f333)
+    if _s333_mig_files:
+        _mig_names333 = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s333_mig_files[:2])
+        lines.append(
+            f"DB migration: {_mig_names333} in diff"
+            f" — schema change; test rollback path and coordinate with DBA before deploy"
+        )
+
     return "\n".join(lines)
