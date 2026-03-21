@@ -219,6 +219,31 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             lines.append("")
             token_count = count_tokens("\n".join(lines))
 
+    # S197: Untested changes — changed non-test symbols with zero test callers.
+    # "Tests to run" shows which test files have coverage; this shows which SPECIFIC changed
+    # symbols have NONE. Complements coverage view: known coverage vs. known gap.
+    # Only shown for functions/methods/classes (constants/variables aren't directly testable).
+    if _all_changed_syms and token_count < max_tokens - 60:
+        _callable_kinds = {"function", "method", "class"}
+        _untested_changed: list[str] = []
+        for _uc_sym in _all_changed_syms:
+            if _uc_sym.kind.value not in _callable_kinds:
+                continue
+            _has_test_caller = any(_is_test_file(c.file_path) for c in graph.callers_of(_uc_sym.id))
+            if not _has_test_caller:
+                _uc_file = _uc_sym.file_path.rsplit("/", 1)[-1]
+                _untested_changed.append(f"{_uc_sym.name} ({_uc_file})")
+        if 1 <= len(_untested_changed):
+            _uc_str = ", ".join(_untested_changed[:6])
+            _uc_overflow = len(_untested_changed) - 6
+            _uc_line = f"untested changes ({len(_untested_changed)}): {_uc_str}"
+            if _uc_overflow > 0:
+                _uc_line += f" +{_uc_overflow} more"
+            _uc_line += " — no direct test coverage for these changed symbols"
+            lines.append(_uc_line)
+            lines.append("")
+            token_count = count_tokens("\n".join(lines))
+
     # Co-change partners missing from diff.
     # Warns the agent when a file that historically co-changes with a changed file is absent —
     # classic sign of an incomplete changeset (e.g. touched auth.py but not session.py).
@@ -571,34 +596,49 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             _s135_str += f" +{len(_s135_names) - 3} more"
         lines.append(f"changed file size: {_s135_total_lines} lines ({_s135_str})")
 
-    # S200: Missing co-editors — files that historically change WITH the diff files
+    # S211: Missing co-editors — files that historically change WITH the diff files
     # but are absent from the current diff. A common source of incomplete PRs.
     # Only shown when 2+ absent co-editors exist with >= 3 co-changes each.
     if graph.root:
         try:
-            from ..git import cochange_pairs as _cp200, is_git_repo as _igr200
-            if _igr200(graph.root):
-                _diff_src200 = [fp for fp in normalized if not _is_test_file(fp)]
-                _diff_set200 = set(normalized)
-                _missing200: dict[str, int] = {}
-                for _fp200 in _diff_src200[:3]:  # check top-3 source files to stay fast
-                    for _p200 in _cp200(graph.root, _fp200, n=8):
-                        if (_p200["path"] not in _diff_set200
-                                and not _is_test_file(_p200["path"])
-                                and _p200["count"] >= 3):
-                            _missing200[_p200["path"]] = max(
-                                _missing200.get(_p200["path"], 0), _p200["count"]
+            from ..git import cochange_pairs as _cp211, is_git_repo as _igr211
+            if _igr211(graph.root):
+                _diff_src211 = [fp for fp in normalized if not _is_test_file(fp)]
+                _diff_set211 = set(normalized)
+                _missing211: dict[str, int] = {}
+                for _fp211 in _diff_src211[:3]:  # check top-3 source files to stay fast
+                    for _p211 in _cp211(graph.root, _fp211, n=8):
+                        if (_p211["path"] not in _diff_set211
+                                and not _is_test_file(_p211["path"])
+                                and _p211["count"] >= 3):
+                            _missing211[_p211["path"]] = max(
+                                _missing211.get(_p211["path"], 0), _p211["count"]
                             )
-                if len(_missing200) >= 2:
-                    _top200 = sorted(_missing200.items(), key=lambda x: -x[1])[:3]
-                    _m200_str = ", ".join(fp.rsplit("/", 1)[-1] for fp, _ in _top200)
-                    if len(_missing200) > 3:
-                        _m200_str += f" +{len(_missing200) - 3} more"
+                if len(_missing211) >= 2:
+                    _top211 = sorted(_missing211.items(), key=lambda x: -x[1])[:3]
+                    _m211_str = ", ".join(fp.rsplit("/", 1)[-1] for fp, _ in _top211)
+                    if len(_missing211) > 3:
+                        _m211_str += f" +{len(_missing211) - 3} more"
                     lines.append(
-                        f"missing co-editors: {_m200_str}"
+                        f"missing co-editors: {_m211_str}"
                         f" — usually change alongside diff files but absent here"
                     )
         except Exception:
             pass
+
+    # S205: Tests-only diff — all diff files are test files, 0 source files.
+    # A commit that only touches tests may be missing the paired implementation change.
+    # Only shown when >= 2 test files are in the diff and no source files.
+    _s205_src_files = [fp for fp in normalized if not _is_test_file(fp)]
+    _s205_test_files = [fp for fp in normalized if _is_test_file(fp)]
+    if not _s205_src_files and len(_s205_test_files) >= 2:
+        _t205_names = [fp.rsplit("/", 1)[-1] for fp in _s205_test_files[:3]]
+        _t205_str = ", ".join(_t205_names)
+        if len(_s205_test_files) > 3:
+            _t205_str += f" +{len(_s205_test_files) - 3} more"
+        lines.append(
+            f"tests-only diff: {len(_s205_test_files)} test files ({_t205_str}),"
+            f" 0 source files — may be missing implementation changes"
+        )
 
     return "\n".join(lines)
