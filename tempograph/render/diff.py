@@ -219,7 +219,7 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             lines.append("")
             token_count = count_tokens("\n".join(lines))
 
-    # S197: Untested changes — changed non-test symbols with zero test callers.
+    # S212: Untested changes — changed non-test symbols with zero test callers.
     # "Tests to run" shows which test files have coverage; this shows which SPECIFIC changed
     # symbols have NONE. Complements coverage view: known coverage vs. known gap.
     # Only shown for functions/methods/classes (constants/variables aren't directly testable).
