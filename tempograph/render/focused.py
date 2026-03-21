@@ -1743,6 +1743,24 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
             if _inh_depth >= 3:
                 lines.append(f"\ninheritance depth: {_inh_depth} levels — deep hierarchy, high base-class coupling")
 
+    # S168: Large fn — the primary symbol is among the largest in its file (>= 50 lines).
+    # Large functions are hard to reason about and test; they often hide multiple responsibilities.
+    # Only shown when seed is a fn/method, line_count >= 50, and it's the largest in its file.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim168 = _seed_syms[0]
+        if _prim168.kind.value in ("function", "method") and _prim168.line_count >= 50:
+            _file_fn_sizes168 = [
+                s.line_count for s in graph.symbols.values()
+                if s.file_path == _prim168.file_path
+                and s.kind.value in ("function", "method")
+                and s.line_count is not None
+            ]
+            if _file_fn_sizes168 and _prim168.line_count >= max(_file_fn_sizes168) * 0.8:
+                lines.append(
+                    f"\nlarge fn: {_prim168.name} ({_prim168.line_count} lines)"
+                    f" — largest in {_prim168.file_path.rsplit('/', 1)[-1]}, consider splitting"
+                )
+
     # S162: Overloaded name — the primary symbol's name appears in 3+ different files.
     # Same name in many files = collision risk; reader context shifts when jumping between files.
     # Only shown when the seed symbol name occurs in 3+ distinct source files.

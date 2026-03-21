@@ -650,6 +650,23 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                 f" — highest combined velocity+complexity"
             )
 
+    # S170: Velocity spike — the top hotspot file's velocity is >= 3x the median velocity.
+    # A single file being changed far more than the rest is a concentration risk.
+    # Only shown when 3+ files have non-zero velocity and top >= 3x median.
+    if velocity and len(velocity) >= 3:
+        _vels170 = sorted(velocity.values())
+        _median170_idx = len(_vels170) // 2
+        _median170 = _vels170[_median170_idx]
+        if _median170 > 0:
+            _top170_fp = max(velocity, key=velocity.get)  # type: ignore[arg-type]
+            _top170_v = velocity[_top170_fp]
+            if _top170_v >= _median170 * 3.0:
+                _top170_name = _top170_fp.rsplit("/", 1)[-1]
+                lines.append(
+                    f"\nvelocity spike: {_top170_name} — {_top170_v:.1f}/wk"
+                    f" vs median {_median170:.1f}/wk ({_top170_v / _median170:.1f}×)"
+                )
+
     # S164: Zero-test hotspot — the highest-ranked hotspot file has no corresponding test file.
     # Hotspot files are changed most often; lacking tests makes them highest refactor risk.
     # Only shown when the top hotspot file has no matching test file in the repo.
