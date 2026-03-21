@@ -1569,6 +1569,29 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — production code never uses this; verify it's not dead production code"
         )
 
+    # S566: Utility module blast — blast target is a utils/helpers file with 5+ importers.
+    # Utility modules with high import counts are hidden load-bearing files; any change
+    # ripples to all consumers even though utilities appear to be "low-level" code.
+    _s566_fp_lower = file_path.lower().replace("\\", "/")
+    _s566_util_markers = ("utils", "helpers", "util", "helper", "common", "shared", "misc")
+    _s566_is_util = any(m in _s566_fp_lower for m in _s566_util_markers)
+    if _s566_is_util and len(importers) >= 5:
+        lines.append(
+            f"utility module blast: {file_path.rsplit('/', 1)[-1]} is a utility file with {len(importers)} importers"
+            f" — seemingly low-level but high impact; utility changes break many consumers at once"
+        )
+
+    # S572: Large file blast — blast target has 300+ lines (high-density change surface).
+    # Large files concentrate many symbol definitions; any change competes with many
+    # co-located symbols for test coverage and reviewer attention.
+    if file_path in graph.files:
+        _fi572 = graph.files[file_path]
+        if _fi572.line_count >= 300:
+            lines.append(
+                f"large file blast: {file_path.rsplit('/', 1)[-1]} has {_fi572.line_count} lines"
+                f" — high-density change surface; changes compete for reviewer attention and test coverage"
+            )
+
     return "\n".join(lines)
 
 

@@ -1655,4 +1655,33 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             f" — dependency upgrade; audit changelogs and test transitive behavior before merging"
         )
 
+    # S567: Schema/migration file in diff — diff includes database schema or migration files.
+    # Schema changes alter the database contract; applying them without testing on staging
+    # first can corrupt data, break indexes, or leave the DB in a half-migrated state.
+    _s567_schema_markers = ("schema.sql", "migration", "alembic", "flyway", "liquibase", "_migrate")
+    _s567_schema_files = [
+        f for f in changed_files
+        if any(m in f.lower() for m in _s567_schema_markers)
+    ]
+    if _s567_schema_files:
+        lines.append(
+            f"schema migration in diff: {len(_s567_schema_files)} migration/schema file(s) changed"
+            f" ({', '.join(f.rsplit('/', 1)[-1] for f in _s567_schema_files[:2])})"
+            f" — always test migrations on a staging copy before applying to production"
+        )
+
+    # S573: Init file in diff — diff includes a package __init__.py.
+    # __init__.py changes alter the package's public interface; adding or removing
+    # re-exports can silently break downstream importers that relied on the old interface.
+    _init_files573 = [
+        f for f in changed_files
+        if f.replace("\\", "/").rsplit("/", 1)[-1] == "__init__.py"
+    ]
+    if _init_files573:
+        _init_name573 = _init_files573[0].replace("\\", "/")
+        lines.append(
+            f"init file changed: {_init_name573} modified"
+            f" — __init__.py changes alter the package's public API; re-export additions/removals break downstream importers"
+        )
+
     return "\n".join(lines)

@@ -3040,6 +3040,20 @@ def _signals_focused_fn_advanced(
                     f" add specific overloads or narrower signatures when possible"
                 )
 
+    # S570: Recursive function — focused function's callees include itself (direct recursion).
+    # Recursive functions must have well-defined base cases; infinite recursion raises RuntimeError
+    # and stack traces that span the full depth are hard to debug.
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim570 = next((s for s in _seed_syms if s.kind.value in ("function", "method")), None)
+        if _prim570 and not _is_test_file(_prim570.file_path):
+            _callees570 = graph.callees_of(_prim570.id)
+            _is_recursive570 = any(c.id == _prim570.id or c.name == _prim570.name for c in _callees570)
+            if _is_recursive570:
+                lines.append(
+                    f"\nrecursive function: {_prim570.name} calls itself"
+                    f" — ensure a base case is reachable; missing base case causes RuntimeError: maximum recursion depth"
+                )
+
     return lines
 
 
