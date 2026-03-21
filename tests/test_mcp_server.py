@@ -6138,3 +6138,68 @@ class TestDeadCodeTransitivelyDead:
         assert "Transitively dead" not in out, (
             f"'Transitively dead' must not appear when live callers exist; got:\n{out}"
         )
+
+
+class TestFocusBFSHubAnnotation:
+    """S52: Focus mode — hub annotation for widely-used utility symbols.
+
+    A symbol called from 15+ unique files at depth >= 1 gets a '[hub: N files]'
+    annotation. Its callers are NOT expanded in BFS to prevent noise flooding.
+    Depth-0 seeds and symbols with < 15 unique caller files must NOT get hub annotation.
+    """
+
+    def _build_hub_graph(self, tmp_path):
+        """Build a graph where util_fn is called from 16 unique files."""
+        from tempograph.builder import build_graph
+
+        # util_fn is the hub — called from 16 separate caller files
+        (tmp_path / "util.py").write_text("def util_fn(x):\n    return x\n")
+        for i in range(16):
+            (tmp_path / f"caller_{i:02d}.py").write_text(
+                f"from util import util_fn\ndef work_{i:02d}(x): return util_fn(x)\n"
+            )
+        # seed file calls util_fn — so util_fn appears at depth 1 in focus output
+        (tmp_path / "main.py").write_text(
+            "from util import util_fn\ndef main_fn(x): return util_fn(x)\n"
+        )
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_hub_annotation_shown_at_depth1(self, tmp_path):
+        """util_fn appears as depth-1 callee and gets [hub: N files] annotation."""
+        from tempograph.render import render_focused
+
+        g = self._build_hub_graph(tmp_path)
+        out = render_focused(g, "main_fn")
+        assert "[hub:" in out, (
+            f"Expected '[hub: N files]' annotation for widely-called util_fn; got:\n{out}"
+        )
+
+    def test_hub_annotation_absent_below_threshold(self, tmp_path):
+        """A function called from only 3 files does NOT get hub annotation."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "util.py").write_text("def small_util(x):\n    return x\n")
+        for i in range(3):
+            (tmp_path / f"c{i}.py").write_text(
+                f"from util import small_util\ndef fn_{i}(x): return small_util(x)\n"
+            )
+        (tmp_path / "main.py").write_text(
+            "from util import small_util\ndef entry(x): return small_util(x)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "entry")
+        assert "[hub:" not in out, (
+            f"'[hub:' must not appear for function with only 3 caller files; got:\n{out}"
+        )
+
+    def test_hub_not_annotated_at_depth0(self, tmp_path):
+        """The depth-0 seed does NOT get hub annotation even if it has 15+ caller files."""
+        from tempograph.render import render_focused
+
+        g = self._build_hub_graph(tmp_path)
+        out = render_focused(g, "util_fn")
+        # depth-0 gets [blast: N files] annotation, not [hub:]
+        assert "[hub:" not in out, (
+            f"Depth-0 seed must NOT get hub annotation (it gets blast: instead); got:\n{out}"
+        )
