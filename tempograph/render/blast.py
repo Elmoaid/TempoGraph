@@ -1978,6 +1978,20 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
             f" — changes affect all code reaching external services through this client"
         )
 
+    # S752: Test helper blast — the blast target is a test helper/fixture/conftest file.
+    # Test helpers (conftest, fixtures, factories) used across many tests create implicit
+    # dependencies; changing them can silently break many test scenarios.
+    _stem752 = _fp589.replace("\\", "/").rsplit("/", 1)[-1].replace(".py", "").lower()
+    _test_helper_kws752 = ("conftest", "fixture", "factory", "helper", "mock", "fake", "stub")
+    if any(kw in _stem752 for kw in _test_helper_kws752):
+        _importers752 = graph.importers_of(_fp589)
+        _test_importers752 = [f for f in _importers752 if _is_test_file(f)]
+        if len(_test_importers752) >= 2:
+            lines.append(
+                f"test helper blast: {_fp589.rsplit('/', 1)[-1]} is a test helper used by"
+                f" {len(_test_importers752)} test files — changes here break tests silently; review all usages"
+            )
+
     return "\n".join(lines)
 
 

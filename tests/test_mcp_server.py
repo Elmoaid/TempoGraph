@@ -35336,3 +35336,248 @@ class TestDeadValidationFunctionsS749:
         assert "dead validation functions" not in out, (
             f"'dead validation functions' must not appear when validate fn is called; got:\n{out}"
         )
+
+# ---------------------------------------------------------------------------
+# S750 – S755
+# ---------------------------------------------------------------------------
+
+# ── S750: No docstring and widely called ──────────────────────────────────────
+
+class TestNoDocstringWidelyCalledS750:
+    """S750: Focused function with no docstring called from 5+ files emits no-docstring signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def process(data): return data\n")
+        for i in range(6):
+            (tmp_path / f"caller_{i}.py").write_text(
+                f"from utils import process\ndef run_{i}(x): return process(x)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process")
+        assert "no docstring" in out, (
+            f"Expected 'no docstring' for widely-called function without docstring; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(x): return x\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "helper")
+        assert "no docstring" not in out, (
+            f"'no docstring' must not appear when fn has fewer than 5 cross-file callers; got:\n{out}"
+        )
+
+
+# ── S751: Single test file ───────────────────────────────────────────────────
+
+class TestSingleTestFileS751:
+    """S751: Repo with many source symbols but only one test file emits single-test-file signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text(
+            "def fn_a(): pass\ndef fn_b(): pass\ndef fn_c(): pass\n"
+            "def fn_d(): pass\ndef fn_e(): pass\ndef fn_f(): pass\n"
+        )
+        (tmp_path / "test_app.py").write_text(
+            "def test_fn_a(): pass\ndef test_fn_b(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single test file" in out, (
+            f"Expected 'single test file' when all tests are in one file; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text(
+            "def fn_a(): pass\ndef fn_b(): pass\ndef fn_c(): pass\n"
+            "def fn_d(): pass\ndef fn_e(): pass\n"
+        )
+        (tmp_path / "test_a.py").write_text("def test_fn_a(): pass\n")
+        (tmp_path / "test_b.py").write_text("def test_fn_b(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "single test file" not in out, (
+            f"'single test file' must not appear when tests are spread across multiple files; got:\n{out}"
+        )
+
+
+# ── S752: Test helper blast ───────────────────────────────────────────────────
+
+class TestHelperBlastS752:
+    """S752: Blast target is a test helper used by multiple test files emits test-helper-blast signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "conftest.py").write_text(
+            "def make_user(name): return {'name': name}\n"
+        )
+        (tmp_path / "test_auth.py").write_text(
+            "from conftest import make_user\ndef test_login(): make_user('alice')\n"
+        )
+        (tmp_path / "test_profile.py").write_text(
+            "from conftest import make_user\ndef test_view(): make_user('bob')\n"
+        )
+        (tmp_path / "test_admin.py").write_text(
+            "from conftest import make_user\ndef test_create(): make_user('admin')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "conftest.py")
+        assert "test helper blast" in out, (
+            f"Expected 'test helper blast' for conftest used by multiple test files; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def helper(x): return x\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef run(): helper(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "test helper blast" not in out, (
+            f"'test helper blast' must not appear for non-test-helper files; got:\n{out}"
+        )
+
+
+# ── S753: Private-only diff ───────────────────────────────────────────────────
+
+class TestPrivateOnlyDiffS753:
+    """S753: All changed files have only private top-level symbols emits private-only-diff signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "a.py").write_text("def _internal_a(): pass\n")
+        (tmp_path / "b.py").write_text("def _internal_b(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["a.py", "b.py"])
+        assert "private-only diff" in out, (
+            f"Expected 'private-only diff' when all changed files have only private symbols; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "a.py").write_text("def _internal_a(): pass\ndef public_a(): pass\n")
+        (tmp_path / "b.py").write_text("def _internal_b(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["a.py", "b.py"])
+        assert "private-only diff" not in out, (
+            f"'private-only diff' must not appear when a changed file has public symbols; got:\n{out}"
+        )
+
+
+# ── S754: Single-caller hotspot ──────────────────────────────────────────────
+
+class TestSingleCallerHotspotS754:
+    """S754: Top hotspot with exactly 1 cross-file caller emits single-caller-hotspot signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text(
+            "def process(a,b,c,d,e):\n"
+            "    if a:\n        if b:\n            if c:\n"
+            "                if d:\n                    if e: return a\n"
+            "                    return b\n"
+            "                return c\n"
+            "            return d\n"
+            "        return e\n"
+            "    return 0\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from core import process\ndef run(): process(1,2,3,4,5)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "single-caller hotspot" in out, (
+            f"Expected 'single-caller hotspot' when top hotspot has exactly 1 caller; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "core.py").write_text(
+            "def process(a,b,c,d,e):\n"
+            "    if a:\n        if b:\n            if c:\n"
+            "                if d:\n                    if e: return a\n"
+            "                    return b\n"
+            "                return c\n"
+            "            return d\n"
+            "        return e\n"
+            "    return 0\n"
+        )
+        for i in range(3):
+            (tmp_path / f"app_{i}.py").write_text(
+                f"from core import process\ndef run_{i}(): process(1,2,3,4,5)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "single-caller hotspot" not in out, (
+            f"'single-caller hotspot' must not appear when top hotspot has 3 callers; got:\n{out}"
+        )
+
+
+# ── S755: Dead static-only class ─────────────────────────────────────────────
+
+class TestDeadStaticOnlyClassS755:
+    """S755: Unused class with only classmethods/staticmethods emits dead-static-only-class signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "class StringUtils:\n"
+            "    @staticmethod\n"
+            "    def capitalize(s): return s.upper()\n"
+            "    @classmethod\n"
+            "    def from_bytes(cls, b): return cls()\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead static-only class" in out, (
+            f"Expected 'dead static-only class' for unused class with only static methods; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "class StringUtils:\n"
+            "    @staticmethod\n"
+            "    def capitalize(s): return s.upper()\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from utils import StringUtils\n"
+            "def main(): StringUtils.capitalize('hello')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead static-only class" not in out, (
+            f"'dead static-only class' must not appear when class is used; got:\n{out}"
+        )
