@@ -6082,6 +6082,24 @@ class TestDeadCodeTransitivelyDead:
 
     def _build(self, tmp_path, files: dict):
         from tempograph.builder import build_graph
+class TestFocusCalleeDrift:
+    """S53: Focus mode — callee drift warning.
+
+    When a seed symbol is >=30d old but calls functions in OTHER files whose
+    files were changed within 14d, emit a '⚠ callee drift:' warning line.
+    This flags potential "stale wrapper" situations where the function may not
+    reflect changes to its dependencies.
+
+    No warning when:
+    - seed is fresh (< 30d)
+    - all callees were changed > 14d ago
+    - callees are in the same file as the seed
+    - git is unavailable (graceful fallback)
+    """
+
+    def _build(self, tmp_path, files: dict) -> object:
+        from tempograph.builder import build_graph
+
         for name, content in files.items():
             (tmp_path / name).write_text(content)
         return build_graph(str(tmp_path), use_cache=False)
@@ -6335,4 +6353,214 @@ class TestOverviewGodFiles:
         out = render_overview(g)
         assert "god files:" not in out, (
             f"'god files:' must not appear when exports < 15; got:\n{out}"
+        )
+
+    def test_callee_drift_shown_when_old_seed_has_fresh_callee(self, tmp_path):
+        """Drift warning fires: seed is 60d old, cross-file callee's file changed 7d ago."""
+        from unittest.mock import patch
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "core.py": "def helper(): return 1\n",
+            "wrapper.py": "from core import helper\ndef wrap(): return helper()\n",
+        })
+        g.root = str(tmp_path)
+
+        with (
+            patch("tempograph.git.symbol_last_modified_days", return_value=60),
+            patch("tempograph.git.file_last_modified_days", return_value=7),
+        ):
+            out = render_focused(g, "wrap")
+
+        assert "callee drift" in out, (
+            f"Must show 'callee drift' when seed is 60d old and callee file changed 7d ago; got:\n{out}"
+        )
+        assert "helper" in out, (
+            f"Drift warning must name the drifted callee; got:\n{out}"
+        )
+
+    def test_no_callee_drift_when_seed_is_fresh(self, tmp_path):
+        """No drift warning when seed was recently changed (< 30d), even if callees changed."""
+        from unittest.mock import patch
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "core.py": "def helper(): return 1\n",
+            "wrapper.py": "from core import helper\ndef wrap(): return helper()\n",
+        })
+        g.root = str(tmp_path)
+
+        with (
+            patch("tempograph.git.symbol_last_modified_days", return_value=5),
+            patch("tempograph.git.file_last_modified_days", return_value=3),
+        ):
+            out = render_focused(g, "wrap")
+
+        assert "callee drift" not in out, (
+            f"Must NOT show callee drift when seed is fresh (5d); got:\n{out}"
+        )
+
+    def test_no_callee_drift_when_callees_are_old(self, tmp_path):
+        """No drift warning when callees were not recently modified (>= 14d)."""
+        from unittest.mock import patch
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "core.py": "def helper(): return 1\n",
+            "wrapper.py": "from core import helper\ndef wrap(): return helper()\n",
+        })
+        g.root = str(tmp_path)
+
+        with (
+            patch("tempograph.git.symbol_last_modified_days", return_value=60),
+            patch("tempograph.git.file_last_modified_days", return_value=20),
+        ):
+            out = render_focused(g, "wrap")
+
+        assert "callee drift" not in out, (
+            f"Must NOT show callee drift when callees changed 20d ago (not fresh); got:\n{out}"
+        )
+
+    def test_no_callee_drift_without_git(self, tmp_path):
+        """No drift warning in a non-git directory (graceful fallback)."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "core.py": "def helper(): return 1\n",
+            "wrapper.py": "from core import helper\ndef wrap(): return helper()\n",
+        })
+        # g.root is None (no git) — default from build_graph on a non-git tmp_path
+        out = render_focused(g, "wrap")
+
+        assert "callee drift" not in out, (
+            f"Must NOT show callee drift without git; got:\n{out}"
+        )
+
+
+class TestFocusCalleeCountAnnotation:
+    """S57: Focus mode — '[calls: N]' annotation on depth-0 seed with >=5 distinct callees.
+
+    High callee count signals broad side-effects. Shown on the seed header line.
+    Absent when seed calls fewer than 5 distinct functions.
+    """
+
+    def _build(self, tmp_path, files: dict):
+        from tempograph.builder import build_graph
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        return build_graph(str(tmp_path), use_cache=False)
+
+    def test_callee_count_shown_for_high_callout_function(self, tmp_path):
+        """'[calls: N]' appears on seed when it calls >=5 distinct functions."""
+        from tempograph.render import render_focused
+
+        # orchestrate calls 6 functions
+        g = self._build(tmp_path, {
+            "utils.py": (
+                "def a(): pass\n"
+                "def b(): pass\n"
+                "def c(): pass\n"
+                "def d(): pass\n"
+                "def e(): pass\n"
+                "def f(): pass\n"
+                "def orchestrate():\n"
+                "    a(); b(); c(); d(); e(); f()\n"
+            ),
+        })
+        out = render_focused(g, "orchestrate")
+        assert "[calls:" in out, (
+            f"Expected '[calls: N]' annotation for function calling 6 others; got:\n{out}"
+        )
+
+    def test_callee_count_absent_for_low_callout_function(self, tmp_path):
+        """'[calls: N]' absent when seed calls fewer than 5 distinct functions."""
+        from tempograph.render import render_focused
+
+        g = self._build(tmp_path, {
+            "utils.py": (
+                "def a(): pass\n"
+                "def b(): pass\n"
+                "def small_caller():\n"
+                "    a(); b()\n"
+            ),
+        })
+        out = render_focused(g, "small_caller")
+        assert "[calls:" not in out, (
+            f"'[calls: N]' must not appear for function calling only 2 others; got:\n{out}"
+        )
+
+class TestFocusTestCoverageHint:
+    """S53: Focus mode — test coverage hint at depth-0.
+
+    When the seed function is directly called by a test file, show
+    'tested: test_foo.py' so agents know there's a safety net.
+    When the seed is exported but has no test callers, show
+    'no tests — exported but never called from a test file'.
+    Classes and non-exported private functions must not get the hint.
+    """
+
+    def test_tested_annotation_when_test_calls_seed(self, tmp_path):
+        """Exported function called from test_foo.py shows 'tested: test_foo.py'."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "api.py").write_text(
+            "def process(x):\n    return x * 2\n"
+        )
+        (tmp_path / "test_api.py").write_text(
+            "from api import process\ndef test_process(): assert process(3) == 6\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process")
+        assert "tested:" in out, (
+            f"Expected 'tested:' annotation when test calls the seed; got:\n{out}"
+        )
+        assert "test_api.py" in out, (
+            f"Expected test file name 'test_api.py' in tested annotation; got:\n{out}"
+        )
+
+    def test_no_tests_annotation_for_untested_exported_function(self, tmp_path):
+        """Exported function with no test callers shows 'no tests' warning."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "api.py").write_text(
+            "def public_fn(x):\n    return x\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from api import public_fn\ndef run(): return public_fn(1)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "public_fn")
+        assert "no tests" in out, (
+            f"Expected 'no tests' warning for exported function with no test callers; got:\n{out}"
+        )
+
+    def test_no_coverage_hint_for_class_symbol(self, tmp_path):
+        """Class symbol at depth-0 does NOT get tested/no-tests annotation (only fns/methods do)."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "config.py").write_text(
+            "class Config:\n    pass\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from config import Config\ndef run(): return Config()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        # Focus on Config (class, no methods, not a function) — no coverage hint
+        out = render_focused(g, "Config")
+        # Extract only depth-0 lines (● prefix) and their immediate annotations
+        depth0_section = []
+        in_depth0 = False
+        for line in out.splitlines():
+            if line.startswith("●"):
+                in_depth0 = True
+            elif line.startswith("  →") or line.startswith("    ·"):
+                in_depth0 = False
+            if in_depth0:
+                depth0_section.append(line)
+        hint_lines = [l for l in depth0_section if "tested:" in l or "no tests" in l]
+        assert not hint_lines, (
+            f"Class depth-0 seed must not get coverage hint; found: {hint_lines}"
         )
