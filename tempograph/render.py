@@ -2564,6 +2564,20 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
         lines.append(hot_section)
         token_count += count_tokens(hot_section)
 
+    # S103: Cross-file callees — distinct files the seed's direct callees live in.
+    # A function pulling from many files = wide dependency scope = broad change risk.
+    # Shown when seed calls into 3+ distinct external files.
+    if _seed_syms and token_count < max_tokens - 80:
+        _cf_callee_files: set[str] = set()
+        _cf_callee_count = 0
+        for _cfs in _seed_syms:
+            for _cfe in graph.callees_of(_cfs.id):
+                if _cfe.file_path != _cfs.file_path:
+                    _cf_callee_files.add(_cfe.file_path)
+                    _cf_callee_count += 1
+        if len(_cf_callee_files) >= 3:
+            lines.append(f"\ncross-file callees: {_cf_callee_count} fns in {len(_cf_callee_files)} files")
+
     # File siblings: other notable symbols in the primary seed's file.
     # Shows agents what else is in the file without requiring a blast query.
     # Only shown when token budget allows and siblings have callers (i.e. are live code).
@@ -3222,6 +3236,21 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             lines.append(f"change risk: {_risk_label}{_risk_detail}")
             lines.append("")
 
+    # S104: Scope spread — count of distinct top-level directories in the diff.
+    # Cross-module diffs (touching 3+ separate directories) need broader review.
+    # Only shown when 3+ distinct module directories are touched.
+    _diff_dirs = {
+        fp.split("/")[0] if "/" in fp else "."
+        for fp in normalized
+        if not _is_test_file(fp)
+    }
+    if len(_diff_dirs) >= 3:
+        _dir_list = sorted(_diff_dirs)[:5]
+        _dir_str = ", ".join(_dir_list)
+        if len(_diff_dirs) > 5:
+            _dir_str += f" +{len(_diff_dirs) - 5} more"
+        lines.append(f"scope: {len(_diff_dirs)} modules ({_dir_str})")
+
     # Risk summary: top changed files by blast radius, so agents can prioritize review.
     # Only shown when 2+ changed files with blast >= 2; single-file diffs skip this.
     _risk_blast = sorted(
@@ -3411,6 +3440,21 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
     if 1 <= len(_tests_in_diff) <= 4:
         _tdf_str = ", ".join(_tests_in_diff)
         lines.append(f"Tests in diff: {_tdf_str} ✓")
+
+    # S102: Private callers — count of non-exported callers of changed exported symbols.
+    # Agents often focus on external API consumers, but internal private callers also
+    # need updating after a signature change. This surfaces the hidden internal blast.
+    # Only shown when >= 3 private callers exist across all changed exported symbols.
+    if _all_changed_syms:
+        _priv_caller_set: set[str] = set()
+        for _exp_s in _all_changed_syms:
+            if not _exp_s.exported:
+                continue
+            for _caller in graph.callers_of(_exp_s.id):
+                if not _caller.exported and _caller.file_path not in {fp for fp in normalized}:
+                    _priv_caller_set.add(f"{_caller.file_path}::{_caller.name}")
+        if len(_priv_caller_set) >= 3:
+            lines.append(f"Private callers: {len(_priv_caller_set)} — internal non-exported callers of changed exports")
 
     return "\n".join(lines)
 
