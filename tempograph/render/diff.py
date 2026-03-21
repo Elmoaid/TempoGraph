@@ -327,4 +327,19 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
         if len(_priv_caller_set) >= 3:
             lines.append(f"Private callers: {len(_priv_caller_set)} — internal non-exported callers of changed exports")
 
+    # S118: Entry points changed — highlight when the diff touches known entry point files.
+    # Entry points (main.py, server.py, __main__.py, app.py, cli.py, index.ts) are highest
+    # blast-radius files — changes here ripple to all consumers. Flag them explicitly.
+    _ENTRY_BASENAMES = frozenset({
+        "main.py", "main.ts", "main.tsx", "main.rs", "main.go",
+        "index.ts", "index.tsx", "index.js",
+        "app.py", "app.ts", "app.tsx",
+        "__main__.py", "server.py", "cli.py", "lib.rs",
+    })
+    _ep_changed = [fp for fp in normalized if fp.rsplit("/", 1)[-1] in _ENTRY_BASENAMES]
+    if _ep_changed:
+        _ep_names = [fp.rsplit("/", 1)[-1] for fp in _ep_changed]
+        _ep_str = ", ".join(_ep_names)
+        lines.append(f"entry points changed: {_ep_str} — top-level API/runner modified")
+
     return "\n".join(lines)

@@ -10206,3 +10206,105 @@ class TestS117HubModules:
         assert "Hub modules:" not in out, (
             f"Single-importer module must not be flagged as hub; got:\n{out}"
         )
+
+
+class TestDiffEntryPointsChanged:
+    """S118: Diff — 'entry points changed' when diff includes main.py/server.py/etc."""
+
+    def test_entry_point_in_diff_flagged(self, tmp_path):
+        """When diff includes server.py, signal entry points changed."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "server.py").write_text("def run():\n    pass\ndef handle():\n    pass\n")
+        (tmp_path / "utils.py").write_text("from server import run\ndef helper():\n    run()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["server.py"])
+        assert "entry points changed" in out, (
+            f"Expected 'entry points changed' when diff includes server.py; got:\n{out}"
+        )
+
+    def test_non_entry_point_not_flagged(self, tmp_path):
+        """Regular utility file diff must NOT trigger entry points changed."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "utils.py").write_text("def helper():\n    pass\ndef compute():\n    pass\n")
+        (tmp_path / "app.py").write_text("from utils import helper\ndef run():\n    helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["utils.py"])
+        assert "entry points changed" not in out, (
+            f"'entry points changed' must not appear for non-entry-point diffs; got:\n{out}"
+        )
+
+
+class TestOverviewDeepestImportChain:
+    """S119: Overview — 'deepest import chain' for deeply-nested files."""
+
+    def test_deep_chain_flagged(self, tmp_path):
+        """File with 4+ hop import chain triggers deepest import chain signal."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # Build a 5-level deep chain: a → b → c → d → e (e is deepest)
+        (tmp_path / "a.py").write_text("from b import bfn\ndef afn():\n    bfn()\n")
+        (tmp_path / "b.py").write_text("from c import cfn\ndef bfn():\n    cfn()\n")
+        (tmp_path / "c.py").write_text("from d import dfn\ndef cfn():\n    dfn()\n")
+        (tmp_path / "d.py").write_text("from e import efn\ndef dfn():\n    efn()\n")
+        (tmp_path / "e.py").write_text("def efn():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "deepest import chain" in out, (
+            f"Expected 'deepest import chain' for 5-level chain; got:\n{out}"
+        )
+
+    def test_shallow_chain_not_flagged(self, tmp_path):
+        """Flat project (depth < 4) must NOT trigger deepest import chain."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        (tmp_path / "a.py").write_text("from b import bfn\ndef afn():\n    bfn()\n")
+        (tmp_path / "b.py").write_text("def bfn():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "deepest import chain" not in out, (
+            f"'deepest import chain' must not appear for shallow (2-hop) project; got:\n{out}"
+        )
+
+
+class TestFocusCallDepth:
+    """S120: Focus — 'call depth: N hops to leaf' for deep call chains."""
+
+    def test_deep_call_chain_shown(self, tmp_path):
+        """Focus on seed with 5+ hop call chain shows call depth signal."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        # Build a 6-level deep call chain
+        (tmp_path / "main.py").write_text(
+            "from chain import fn1\ndef seed():\n    fn1()\n"
+        )
+        (tmp_path / "chain.py").write_text(
+            "def fn1():\n    fn2()\ndef fn2():\n    fn3()\ndef fn3():\n    fn4()\n"
+            "def fn4():\n    fn5()\ndef fn5():\n    fn6()\ndef fn6():\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "seed")
+        assert "call depth" in out, (
+            f"Expected 'call depth' for deep call chain; got:\n{out}"
+        )
+
+    def test_shallow_call_chain_not_shown(self, tmp_path):
+        """Focus on seed with 2-hop call chain must NOT show call depth."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "a.py").write_text(
+            "from b import bfn\ndef seed():\n    bfn()\n"
+        )
+        (tmp_path / "b.py").write_text("def bfn():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "seed")
+        assert "call depth" not in out, (
+            f"'call depth' must not appear for shallow call chain; got:\n{out}"
+        )
