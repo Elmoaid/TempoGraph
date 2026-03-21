@@ -353,6 +353,30 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             _dc_str += f" +{len(_dead_consts) - 3} more"
         lines.append(f"dead constants: {len(_dead_consts)} unused constants/variables ({_dc_str})")
 
+    # S172: Dead class — a class with conf >= 40 that contains at least 1 method.
+    # Dead classes = entire feature removal candidates; deleting one removes many symbols.
+    # Only shown when >= 1 non-test class qualifies.
+    _s172_dead_classes: list[str] = []
+    for _cls172, _conf172 in scored:
+        if _conf172 < 40:
+            continue
+        if _is_test_file(_cls172.file_path):
+            continue
+        if _cls172.kind.value != "class":
+            continue
+        # Must have at least one method (non-trivial class)
+        _methods172 = [
+            ch for ch in graph.children_of(_cls172.id)
+            if ch.kind.value == "method"
+        ]
+        if _methods172:
+            _s172_dead_classes.append(_cls172.name)
+    if len(_s172_dead_classes) >= 1:
+        _dclass_str = ", ".join(_s172_dead_classes[:3])
+        if len(_s172_dead_classes) > 3:
+            _dclass_str += f" +{len(_s172_dead_classes) - 3} more"
+        lines.append(f"dead classes: {len(_s172_dead_classes)} fully-dead class(es) ({_dclass_str})")
+
     # S166: Zombie methods — dead methods that belong to classes with active (live) callers.
     # These are particularly surprising: the class is used but the method is unreachable.
     # Only shown when 2+ such zombie methods found.
