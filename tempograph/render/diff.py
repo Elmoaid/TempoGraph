@@ -476,6 +476,21 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
                 f" — no logic changes; verify config values are correct for all environments"
             )
 
+    # S765: Root-level file in diff — one or more changed files are at the repo root (no subdirectory).
+    # Root-level source files are often entry points or core bootstrapping code;
+    # changes affect the startup sequence and are harder to isolate in testing.
+    if changed_files:
+        _root_files765 = [
+            f for f in changed_files
+            if "/" not in f.replace("\\", "/") and f.rsplit(".", 1)[-1].lower() in {"py", "js", "ts", "go", "rs"}
+        ]
+        if _root_files765:
+            lines.append(
+                f"root-level file: {len(_root_files765)} changed file(s) at repo root"
+                f" ({', '.join(_root_files765[:2])}{'...' if len(_root_files765) > 2 else ''})"
+                f" — entry point or bootstrap code; changes affect startup and test isolation"
+            )
+
     if not normalized:
         return "\n".join(lines) if len(lines) > 2 else f"None of the changed files found in graph: {changed_files}"
 
