@@ -400,6 +400,25 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             _s160_str += f" +{len(_s160_new_syms) - 3} more"
         lines.append(f"new symbols: {len(_s160_new_syms)} exported fns/classes with 0 callers ({_s160_str})")
 
+    # S175: Config file change — the diff includes a configuration or settings file.
+    # Config changes affect runtime behavior globally; they warrant extra scrutiny.
+    # Only shown when 1+ config file is in the diff.
+    _s175_config_stems = {
+        "settings", "config", "configuration", "constants", "env",
+        "defaults", "options", "params", "parameters",
+    }
+    _s175_config_files = [
+        fp for fp in normalized
+        if fp.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() in _s175_config_stems
+        and not _is_test_file(fp)
+    ]
+    if _s175_config_files:
+        _s175_str = ", ".join(fp.rsplit("/", 1)[-1] for fp in _s175_config_files[:3])
+        lines.append(
+            f"config change: {_s175_str}"
+            f" — settings file modified, check for unintended global effects"
+        )
+
     # S169: Entry point change — the diff includes an application entry point file.
     # Entry points are user-facing; changes here are immediately visible to end users.
     # Only shown when 1+ entry point filename is among the changed files.

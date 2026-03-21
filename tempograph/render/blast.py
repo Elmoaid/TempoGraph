@@ -436,6 +436,25 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — package entry point, changes affect all importers"
             )
 
+    # S177: Cross-module callers — callers of blast-target symbols span 4+ distinct top-level dirs.
+    # When 4+ modules call this file, a change requires coordination across many subsystems.
+    # Only shown when callers come from 4+ distinct top-level directories.
+    _s177_caller_modules: set[str] = set()
+    for _sym177 in symbols:
+        for _c177 in graph.callers_of(_sym177.id):
+            _parts177 = _c177.file_path.split("/")
+            _mod177 = _parts177[0] if len(_parts177) > 1 else "."
+            if _mod177 != file_path.split("/")[0]:  # exclude own module
+                _s177_caller_modules.add(_mod177)
+    if len(_s177_caller_modules) >= 4:
+        _s177_mods_str = ", ".join(sorted(_s177_caller_modules)[:4])
+        if len(_s177_caller_modules) > 4:
+            _s177_mods_str += f" +{len(_s177_caller_modules) - 4} more"
+        lines.append(
+            f"cross-module callers: {len(_s177_caller_modules)} modules depend on this file"
+            f" ({_s177_mods_str})"
+        )
+
     # S171: Indirect blast — files that are 2 hops away via importers (importers of importers).
     # Changing this file ripples to direct importers AND to their importers.
     # Only shown when 5+ distinct 2nd-hop importer files exist.

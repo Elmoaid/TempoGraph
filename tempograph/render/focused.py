@@ -1743,6 +1743,25 @@ def render_focused(graph: Tempo, query: str, *, max_tokens: int = 4000) -> str:
             if _inh_depth >= 3:
                 lines.append(f"\ninheritance depth: {_inh_depth} levels — deep hierarchy, high base-class coupling")
 
+    # S174: Test coverage — how many distinct test files call the focused symbol.
+    # More test files = better coverage spread; 0 test callers = coverage gap.
+    # Only shown when >= 2 test files call the focused symbol (positive signal).
+    if _seed_syms and token_count < max_tokens - 30:
+        _prim174 = _seed_syms[0]
+        _s174_test_fps = {
+            c.file_path for c in graph.callers_of(_prim174.id)
+            if _is_test_file(c.file_path)
+        }
+        if len(_s174_test_fps) >= 2:
+            _s174_names = [fp.rsplit("/", 1)[-1] for fp in sorted(_s174_test_fps)[:3]]
+            _s174_str = ", ".join(_s174_names)
+            if len(_s174_test_fps) > 3:
+                _s174_str += f" +{len(_s174_test_fps) - 3} more"
+            lines.append(
+                f"\ntest coverage: {len(_s174_test_fps)} test files exercise {_prim174.name}"
+                f" ({_s174_str})"
+            )
+
     # S168: Large fn — the primary symbol is among the largest in its file (>= 50 lines).
     # Large functions are hard to reason about and test; they often hide multiple responsibilities.
     # Only shown when seed is a fn/method, line_count >= 50, and it's the largest in its file.
