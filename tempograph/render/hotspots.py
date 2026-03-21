@@ -612,4 +612,29 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
         lines.append("")
         lines.append(f"Import bottleneck: {_bn_fp.rsplit('/', 1)[-1]} ({_bn_n} dependents{_bn_velo_str})")
 
+    # S139: Caller concentration — when a single file accounts for >= 50% of all callers
+    # to the top hotspot symbol, the dependency is "concentrated."
+    # A concentrated dependency means one file is doing most of the work through a bottleneck.
+    # Only shown when top hotspot symbol has >= 4 cross-file callers.
+    if scores:
+        _top_sym139: "Symbol" = scores[0][1]
+        _callers139 = [
+            c for c in graph.callers_of(_top_sym139.id)
+            if c.file_path and c.file_path != _top_sym139.file_path
+            and not _is_test_file(c.file_path)
+        ]
+        if len(_callers139) >= 4:
+            _caller_file_counts139: dict[str, int] = {}
+            for _c139 in _callers139:
+                _caller_file_counts139[_c139.file_path] = _caller_file_counts139.get(_c139.file_path, 0) + 1
+            _max_fp139 = max(_caller_file_counts139, key=lambda fp: _caller_file_counts139[fp])
+            _max_count139 = _caller_file_counts139[_max_fp139]
+            _pct139 = int(_max_count139 / len(_callers139) * 100)
+            if _pct139 >= 50:
+                lines.append("")
+                lines.append(
+                    f"caller concentration: {_max_fp139.rsplit('/', 1)[-1]}"
+                    f" = {_pct139}% of {_top_sym139.name} callers — single file dominates usage"
+                )
+
     return "\n".join(lines)

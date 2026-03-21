@@ -337,6 +337,25 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             _mb_parts = [f"{mod}/ ({cnt})" for mod, cnt in _module_items[:4]]
             lines.append(f"dead by module: {', '.join(_mb_parts)}")
 
+    # S140: Dead test helpers — unused functions defined in test files (not fixtures/conftest).
+    # Test helper fns that nobody calls are stale utilities from abandoned test strategies.
+    # Safe to delete; flag when >= 3 are found to prompt cleanup.
+    _dead_test_helpers = [
+        sym for sym, conf in scored
+        if conf >= 10
+        and _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and not sym.name.startswith("test_")
+        and not sym.name.startswith("Test")
+        and sym.name not in ("setUp", "tearDown", "setUpClass", "tearDownClass")
+    ]
+    if len(_dead_test_helpers) >= 3:
+        _dth_names = [s.name for s in _dead_test_helpers[:3]]
+        _dth_str = ", ".join(_dth_names)
+        if len(_dead_test_helpers) > 3:
+            _dth_str += f" +{len(_dead_test_helpers) - 3} more"
+        lines.append(f"dead test helpers: {len(_dead_test_helpers)} unused helper fns in test files ({_dth_str})")
+
     lines.append(f"Total: {len(dead)} unused symbols (~{total_lines:,} lines shown)")
     if include_low:
         lines.append(f"  {len(high)} high, {len(medium)} medium, {len(low)} low confidence")
