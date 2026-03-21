@@ -1375,6 +1375,27 @@ def render_blast_radius(graph: Tempo, file_path: str, query: str = "") -> str:
                 f" — renaming or removing any constant silently breaks all consumers"
             )
 
+    # S479: Bridge file blast — blast target imports from one component and is imported by another.
+    # Bridge files couple two otherwise-independent modules; removing or splitting them
+    # breaks both sides simultaneously, requiring coordinated changes across the boundary.
+    _s479_outbound_dirs: set[str] = set()
+    for _e479 in graph.edges:
+        if _e479.kind.value == "imports" and _e479.source_id == file_path:
+            _dir479 = _e479.target_id.rsplit("/", 1)[0] if "/" in _e479.target_id else ""
+            if _dir479 and _dir479 != (file_path.rsplit("/", 1)[0] if "/" in file_path else ""):
+                _s479_outbound_dirs.add(_dir479)
+    _s479_inbound_dirs: set[str] = set()
+    for _imp479 in importers:
+        _dir479 = _imp479.rsplit("/", 1)[0] if "/" in _imp479 else ""
+        if _dir479 and _dir479 != (file_path.rsplit("/", 1)[0] if "/" in file_path else ""):
+            _s479_inbound_dirs.add(_dir479)
+    if _s479_outbound_dirs and _s479_inbound_dirs and not _s479_outbound_dirs & _s479_inbound_dirs:
+        lines.append(
+            f"bridge file: {file_path.rsplit('/', 1)[-1]} connects"
+            f" {len(_s479_outbound_dirs)} outbound module(s) ↔ {len(_s479_inbound_dirs)} inbound module(s)"
+            f" — removing it requires coordinated changes on both sides of the boundary"
+        )
+
     return "\n".join(lines)
 
 

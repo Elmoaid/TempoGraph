@@ -2169,6 +2169,26 @@ def _signals_async_oop(
             f" — likely smoke tests only; complex behavior and edge cases are untested"
         )
 
+    # S481: High dead-code ratio — 30%+ of functions appear unreferenced.
+    # A high percentage of unreachable code inflates maintenance surface;
+    # every change must consider whether any dead branch accidentally becomes live.
+    _s481_src_syms = [
+        s for s in graph.symbols.values()
+        if not _is_test_file(s.file_path) and s.kind.value in ("function", "method")
+    ]
+    _s481_unreferenced = [
+        s for s in _s481_src_syms
+        if not graph.callers_of(s.id) and not graph.importers_of(s.file_path)
+    ]
+    if len(_s481_src_syms) >= 20:
+        _dead_ratio481 = len(_s481_unreferenced) / len(_s481_src_syms)
+        if _dead_ratio481 >= 0.30:
+            lines.append(
+                f"high dead-code ratio: {int(_dead_ratio481 * 100)}% of functions are unreferenced"
+                f" ({len(_s481_unreferenced)}/{len(_s481_src_syms)})"
+                f" — clean up dead code before adding features to reduce cognitive load"
+            )
+
     return lines
 
 

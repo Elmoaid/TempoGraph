@@ -23333,3 +23333,213 @@ class TestGeneratorFunctionFocusedS475:
         assert "generator function" not in out, (
             f"'generator function' must not appear for non-generator fn; got:\n{out}"
         )
+
+
+class TestHighDeadCodeRatioS481:
+    """S481: 30%+ of functions unreferenced emits high dead-code ratio signal."""
+
+    def test_high_dead_ratio_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # 20+ functions, mostly unreferenced
+        many_dead = "\n".join(
+            f"def dead_func_{i}():\n    pass\n" for i in range(22)
+        )
+        (tmp_path / "dead_code.py").write_text(many_dead)
+        (tmp_path / "main.py").write_text("def main():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "high dead-code ratio" in out, (
+            f"Expected 'high dead-code ratio' signal for 22 unreferenced fns; got:\n{out}"
+        )
+
+    def test_high_dead_ratio_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        # Only 3 source files — below the 20+ threshold
+        for i in range(3):
+            (tmp_path / f"m_{i}.py").write_text(f"def fn_{i}(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "high dead-code ratio" not in out, (
+            f"'high dead-code ratio' must not appear for small codebase; got:\n{out}"
+        )
+
+
+class TestThreadSafeFocusedS476:
+    """S476: Function with _locked/_synchronized suffix emits thread-safe signal."""
+
+    def test_thread_safe_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "cache.py").write_text(
+            "def update_cache_locked(key, value):\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "update_cache_locked")
+        assert "thread-safe" in out, (
+            f"Expected 'thread-safe' signal for _locked function; got:\n{out}"
+        )
+
+    def test_thread_safe_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def compute_sum(a, b):\n    return a + b\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "compute_sum")
+        assert "thread-safe" not in out, (
+            f"'thread-safe' must not appear for plain utility fn; got:\n{out}"
+        )
+
+
+class TestMultiModuleDiffS477:
+    """S477: Diff spanning 5+ top-level directories emits multi-module signal."""
+
+    def test_multi_module_diff_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        changed = [
+            "frontend/src/app.ts",
+            "backend/api/users.py",
+            "infra/docker/compose.yml",
+            "docs/api/reference.md",
+            "tests/e2e/suite.js",
+        ]
+        out = render_diff_context(g, changed)
+        assert "multi-module diff" in out, (
+            f"Expected 'multi-module diff' signal for 5 top-level dirs; got:\n{out}"
+        )
+
+    def test_multi_module_diff_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["app.py", "utils.py"])
+        assert "multi-module diff" not in out, (
+            f"'multi-module diff' must not appear for files in same dir; got:\n{out}"
+        )
+
+
+class TestGeneratedFileHotspotS478:
+    """S478: Top hotspot in a _generated.* file emits generated-file hotspot signal."""
+
+    def test_generated_hotspot_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        gen_dir = tmp_path / "src"
+        gen_dir.mkdir()
+        (gen_dir / "proto_generated.py").write_text(
+            "def parse_message(data): pass\n"
+            "def serialize_message(msg): pass\n"
+        )
+        for i in range(4):
+            (tmp_path / f"consumer_{i}.py").write_text(
+                f"from src.proto_generated import parse_message\n"
+                f"def handle_{i}(d): parse_message(d)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "generated-file hotspot" in out, (
+            f"Expected 'generated-file hotspot' signal for proto_generated.py; got:\n{out}"
+        )
+
+    def test_generated_hotspot_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        (tmp_path / "service.py").write_text("def process(): pass\n")
+        (tmp_path / "caller.py").write_text(
+            "from service import process\ndef run(): process()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "generated-file hotspot" not in out, (
+            f"'generated-file hotspot' must not appear for regular file; got:\n{out}"
+        )
+
+
+class TestBridgeFileBlastS479:
+    """S479: Bridge file connecting two distinct module groups emits signal."""
+
+    def test_bridge_file_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        # bridge.py imports from pkg_a, imported by pkg_b
+        pkg_a = tmp_path / "pkg_a"
+        pkg_b = tmp_path / "pkg_b"
+        pkg_a.mkdir()
+        pkg_b.mkdir()
+        (pkg_a / "service.py").write_text("def service_fn(): pass\n")
+        (tmp_path / "bridge.py").write_text(
+            "from pkg_a.service import service_fn\n\ndef bridge_fn(): return service_fn()\n"
+        )
+        (pkg_b / "consumer.py").write_text(
+            "import sys\nsys.path.insert(0, '..')\nfrom bridge import bridge_fn\ndef run(): bridge_fn()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "bridge.py")
+        assert "bridge file" in out, (
+            f"Expected 'bridge file' signal for bridge.py; got:\n{out}"
+        )
+
+    def test_bridge_file_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "util.py").write_text("def helper(): pass\n")
+        (tmp_path / "main.py").write_text("from util import helper\ndef run(): helper()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "util.py")
+        assert "bridge file" not in out, (
+            f"'bridge file' must not appear for same-dir file; got:\n{out}"
+        )
+
+
+class TestDeadDebugHelpersS480:
+    """S480: Unused debug_*/dump_* functions emit the dead debug helpers signal."""
+
+    def test_dead_debug_helpers_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "debug.py").write_text(
+            "def debug_request(req):\n    pass\n\n"
+            "def dump_state(state):\n    pass\n\n"
+            "def debug_response(resp):\n    pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead debug helpers" in out, (
+            f"Expected 'dead debug helpers' signal for unused debug fns; got:\n{out}"
+        )
+
+    def test_dead_debug_helpers_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "debug.py").write_text(
+            "def debug_request(req):\n    pass\n\n"
+            "def debug_response(resp):\n    pass\n"
+        )
+        (tmp_path / "main.py").write_text(
+            "from debug import debug_request, debug_response\n\n"
+            "def run(req):\n    debug_request(req)\n    debug_response(req)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead debug helpers" not in out, (
+            f"'dead debug helpers' must not appear when debug fns are called; got:\n{out}"
+        )
