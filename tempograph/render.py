@@ -798,6 +798,22 @@ def render_overview(graph: Tempo) -> str:
             _cxc_parts = [f"{fp.rsplit('/', 1)[-1]}:{cx}" for fp, cx in _cx_sorted[:3]]
             lines.append(f"cx concentration: {_pct}% in top 3 files ({', '.join(_cxc_parts)})")
 
+    # S100: Median complexity — central tendency for cyclomatic complexity across fns.
+    # Complements the avg: if median << avg, a small number of outliers skew the mean.
+    # Only shown when 10+ non-test functions have complexity data.
+    _all_cx_vals = sorted(
+        sym.complexity for sym in graph.symbols.values()
+        if sym.kind.value in ("function", "method") and not _is_test_file(sym.file_path) and sym.complexity >= 1
+    )
+    if len(_all_cx_vals) >= 10:
+        _mid = len(_all_cx_vals) // 2
+        _median_cx = (
+            _all_cx_vals[_mid] if len(_all_cx_vals) % 2 == 1
+            else (_all_cx_vals[_mid - 1] + _all_cx_vals[_mid]) // 2
+        )
+        _mean_cx = sum(_all_cx_vals) / len(_all_cx_vals)
+        lines.append(f"median complexity: {_median_cx} (mean: {_mean_cx:.1f}, n={len(_all_cx_vals)} fns)")
+
     # Circular imports: flag immediately in overview so agents don't miss them.
     # Details are in `--mode deps` but overview gives a quick count + first cycle.
     try:
@@ -4154,6 +4170,21 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
         if len(_dead_api) > 4:
             _da_str += f" +{len(_dead_api) - 4} more"
         lines.append(f"Dead API ({len(_dead_api)}): {_da_str} — exported, no callers (verify before deleting)")
+
+    # S101: Clustered dead — files with 3+ dead symbols are batch cleanup targets.
+    # More actionable than a scattered list: "clean up this file" vs. "hunt everywhere."
+    # Shows top 2 worst offenders with symbol count and file name.
+    _dead_by_file: dict[str, int] = {}
+    for sym, conf in scored:
+        if conf >= 40:
+            _dead_by_file[sym.file_path] = _dead_by_file.get(sym.file_path, 0) + 1
+    _clustered = sorted(
+        [(fp, cnt) for fp, cnt in _dead_by_file.items() if cnt >= 3],
+        key=lambda x: -x[1],
+    )
+    if len(_clustered) >= 1:
+        _cl_parts = [f"{cnt} in {fp.rsplit('/', 1)[-1]}" for fp, cnt in _clustered[:2]]
+        lines.append(f"Clustered dead: {', '.join(_cl_parts)} — batch cleanup targets")
 
     # Orphan files: files where ALL exported symbols are dead → delete the whole file.
     # More actionable than quick wins: one `rm` instead of N symbol deletions.
