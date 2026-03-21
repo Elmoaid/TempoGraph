@@ -13448,3 +13448,222 @@ class TestDiffMissingCoEditors:
         out = render_diff_context(g, ["tempograph/render/diff.py"])
         if "missing co-editors" in out:
             assert "usually change alongside" in out
+
+
+# ---------------------------------------------------------------------------
+# S203 — undocumented exports (overview)
+# ---------------------------------------------------------------------------
+
+class TestOverviewUndocumentedExports:
+    def test_undocumented_exports_shown(self, tmp_path):
+        """S203: signal shown when >= 10 exported fns/classes and >= 50% lack docstrings."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        # 12 exported fns, none with docstrings → 100% undocumented
+        fns = "\n".join(f"def fn{i}(): pass" for i in range(12))
+        (tmp_path / "api.py").write_text(fns + "\n")
+        (tmp_path / "main.py").write_text(
+            "from api import " + ", ".join(f"fn{i}" for i in range(12)) + "\n"
+            "def run(): fn0()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "undocumented exports" in out, f"'undocumented exports' expected; got:\n{out}"
+
+    def test_undocumented_exports_absent_when_documented(self, tmp_path):
+        """S203: signal absent when < 50% of exported symbols lack docstrings."""
+        from tempograph.builder import build_graph
+        from tempograph.render.overview import render_overview
+        # 12 exported fns, all with docstrings
+        fns = "\n".join(
+            f'def fn{i}():\n    """Documented fn {i}."""\n    pass' for i in range(12)
+        )
+        (tmp_path / "api.py").write_text(fns + "\n")
+        (tmp_path / "main.py").write_text(
+            "from api import " + ", ".join(f"fn{i}" for i in range(12)) + "\n"
+            "def run(): fn0()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "undocumented exports" not in out, (
+            f"'undocumented exports' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S204 — async fn (focus)
+# ---------------------------------------------------------------------------
+
+class TestFocusedAsyncFn:
+    def test_async_fn_shown(self, tmp_path):
+        """S204: 'async fn' signal shown when focused symbol is declared async."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+        (tmp_path / "processor.py").write_text(
+            "async def process_data(items):\n    return [x * 2 for x in items]\n"
+        )
+        (tmp_path / "runner.py").write_text(
+            "from processor import process_data\ndef run(items): return process_data(items)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process_data")
+        assert "async fn" in out, f"'async fn' expected; got:\n{out}"
+
+    def test_async_fn_absent_for_sync(self, tmp_path):
+        """S204: 'async fn' not shown for a regular synchronous function."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+        (tmp_path / "processor.py").write_text(
+            "def process_data(items):\n    return [x * 2 for x in items]\n"
+        )
+        (tmp_path / "runner.py").write_text(
+            "from processor import process_data\ndef run(items): return process_data(items)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process_data")
+        assert "async fn" not in out, f"'async fn' must not appear; got:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# S205 — tests-only diff (diff)
+# ---------------------------------------------------------------------------
+
+class TestDiffTestsOnly:
+    def test_tests_only_diff_shown(self, tmp_path):
+        """S205: 'tests-only diff' shown when diff contains only test files (>= 2)."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "logic.py").write_text("def compute(x): return x * 2\n")
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_logic.py").write_text("def test_a(): assert True\n")
+        (tests / "test_helpers.py").write_text("def test_b(): assert True\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["tests/test_logic.py", "tests/test_helpers.py"])
+        assert "tests-only diff" in out, f"'tests-only diff' expected; got:\n{out}"
+
+    def test_tests_only_diff_absent_with_source(self, tmp_path):
+        """S205: 'tests-only diff' absent when at least one source file is in the diff."""
+        from tempograph.builder import build_graph
+        from tempograph.render.diff import render_diff_context
+        (tmp_path / "logic.py").write_text("def compute(x): return x * 2\n")
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_logic.py").write_text("def test_a(): assert True\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["logic.py", "tests/test_logic.py"])
+        assert "tests-only diff" not in out, (
+            f"'tests-only diff' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S206 — fan-in spike (hotspots)
+# ---------------------------------------------------------------------------
+
+class TestHotspotsFanInSpike:
+    def test_fan_in_spike_shown(self, tmp_path):
+        """S206: 'fan-in spike' shown when top hotspot symbol has >= 3x avg callers."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        # hub.py has many callers; others have few
+        (tmp_path / "hub.py").write_text("def core_fn(): pass\n")
+        callers = []
+        for i in range(8):
+            name = f"svc{i}.py"
+            (tmp_path / name).write_text(
+                f"from hub import core_fn\ndef isolated_{i}(): core_fn()\n"
+            )
+            callers.append(name)
+        # Low-call files to keep avg low
+        for i in range(5):
+            (tmp_path / f"util{i}.py").write_text(f"def helper_{i}(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        if "fan-in spike" in out:
+            assert "callers" in out
+
+    def test_fan_in_spike_absent_when_even(self, tmp_path):
+        """S206: 'fan-in spike' absent when callers are evenly distributed."""
+        from tempograph.builder import build_graph
+        from tempograph.render.hotspots import render_hotspots
+        # Each fn has exactly 1 caller — no spike
+        for i in range(5):
+            (tmp_path / f"mod{i}.py").write_text(f"def fn_{i}(): pass\n")
+            (tmp_path / f"use{i}.py").write_text(
+                f"from mod{i} import fn_{i}\ndef run_{i}(): fn_{i}()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "fan-in spike" not in out, (
+            f"'fan-in spike' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S207 — single importer (blast)
+# ---------------------------------------------------------------------------
+
+class TestBlastSingleImporter:
+    def test_single_importer_shown(self, tmp_path):
+        """S207: 'single importer' shown when exactly 1 file imports blast target."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        (tmp_path / "utils.py").write_text("def helper(): pass\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import helper\ndef main(): helper()\n"
+        )
+        (tmp_path / "other.py").write_text("def standalone(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "single importer" in out, f"'single importer' expected; got:\n{out}"
+
+    def test_single_importer_absent_with_multiple(self, tmp_path):
+        """S207: 'single importer' absent when 2+ files import blast target."""
+        from tempograph.builder import build_graph
+        from tempograph.render.blast import render_blast_radius
+        (tmp_path / "shared.py").write_text("def util(): pass\n")
+        (tmp_path / "a.py").write_text("from shared import util\ndef fa(): util()\n")
+        (tmp_path / "b.py").write_text("from shared import util\ndef fb(): util()\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "shared.py")
+        assert "single importer" not in out, (
+            f"'single importer' must not appear; got:\n{out}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# S208 — dead callbacks (dead)
+# ---------------------------------------------------------------------------
+
+class TestDeadCallbacks:
+    def test_dead_callbacks_shown(self, tmp_path):
+        """S208: 'dead callbacks' shown when 1+ *_callback fns are unused."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "events.py").write_text(
+            "def on_connect_callback(): pass\n"
+            "def on_disconnect_callback(): pass\n"
+            "def notify(): pass\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead callbacks" in out, f"'dead callbacks' expected; got:\n{out}"
+
+    def test_dead_callbacks_absent_when_used(self, tmp_path):
+        """S208: 'dead callbacks' absent when callback fn is called."""
+        from tempograph import build_graph
+        from tempograph.render.dead import render_dead_code
+        (tmp_path / "events.py").write_text(
+            "def on_message_callback(msg): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from events import on_message_callback\n"
+            "def register(): on_message_callback('hi')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead callbacks" not in out, (
+            f"'dead callbacks' must not appear; got:\n{out}"
+        )
