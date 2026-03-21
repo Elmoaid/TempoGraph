@@ -927,6 +927,28 @@ def render_overview(graph: Tempo) -> str:
             chain = " → ".join(c.rsplit("/", 1)[-1] for c in cycle)
             lines.append(f"  {chain}")
 
+    # S129: Orphan modules — top-level dirs where no file is imported by any other module.
+    # These are candidate standalone tools, dead plugins, or forgotten experiments.
+    # Only shown when 3+ top-level dirs exist and 2+ are orphans (not "." root files).
+    if len(modules) >= 3:
+        _orphan_mods: list[str] = []
+        for _om, _om_files in modules.items():
+            if _om == ".":
+                continue
+            # A module is orphan if none of its files are imported from outside the module
+            _any_importer = any(
+                imp in graph.files and not imp.startswith(_om + "/")
+                for fp in _om_files
+                for imp in graph.importers_of(fp)
+            )
+            if not _any_importer:
+                _orphan_mods.append(_om)
+        if len(_orphan_mods) >= 2:
+            _om_str = ", ".join(f"{m}/" for m in sorted(_orphan_mods)[:4])
+            if len(_orphan_mods) > 4:
+                _om_str += f" +{len(_orphan_mods) - 4} more"
+            lines.append(f"orphan modules: {_om_str} — no files imported by other modules")
+
     # Suggest directories to exclude — detect likely noise
     noisy = _detect_noisy_dirs(graph, modules)
     if noisy:
