@@ -375,6 +375,21 @@ def render_diff_context(graph: Tempo, changed_files: list[str], *, max_tokens: i
             else:
                 lines.append("touched test count: 0 — no test files found for changed files")
 
+    # S143: Cross-module impact — how many distinct top-level directories the diff touches.
+    # A diff touching 3+ modules has broader coordination risk than a single-module change.
+    # Only shown when the diff touches source files in 3+ distinct top-level directories.
+    _s143_modules: set[str] = set()
+    for _fp143 in normalized:
+        if _is_test_file(_fp143):
+            continue
+        _parts143 = _fp143.split("/")
+        _s143_modules.add(_parts143[0] if len(_parts143) > 1 else ".")
+    if len(_s143_modules) >= 3:
+        _s143_mods_str = ", ".join(sorted(_s143_modules)[:4])
+        if len(_s143_modules) > 4:
+            _s143_mods_str += f" +{len(_s143_modules) - 4} more"
+        lines.append(f"cross-module impact: {len(_s143_modules)} modules touched ({_s143_mods_str})")
+
     # S135: Changed file size — total line count of all source files in the diff.
     # Changing large files means more surface area for unintended side effects.
     # Only shown when total changed source lines >= 500 (non-trivial file sizes).

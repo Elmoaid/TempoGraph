@@ -11015,3 +11015,108 @@ class TestDeadTestHelpers:
         assert "dead test helpers" not in out, (
             f"'dead test helpers' must not appear when < 3 helpers are dead; got:\n{out}"
         )
+
+
+class TestFocusParamCount:
+    """S141: Focus — 'param count: N — consider a config object' for >= 6 params."""
+
+    def test_high_param_count_flagged(self, tmp_path):
+        """Function with 7 params → 'param count:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "svc.py").write_text(
+            "def process(a, b, c, d, e, f, g):\n    return a + b\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process")
+        assert "param count" in out, (
+            f"Expected 'param count' for 7-param function; got:\n{out}"
+        )
+
+    def test_low_param_count_not_flagged(self, tmp_path):
+        """Function with 3 params → 'param count:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+
+        (tmp_path / "utils.py").write_text(
+            "def simple(a, b, c):\n    return a + b + c\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "simple")
+        assert "param count" not in out, (
+            f"'param count' must not appear for 3-param function; got:\n{out}"
+        )
+
+
+class TestOverviewTestCoverageGap:
+    """S142: Overview — 'test coverage gap: N/M source files have no tests (X%)'."""
+
+    def test_coverage_gap_shown_when_high(self, tmp_path):
+        """Codebase with >= 30% untested source files → 'test coverage gap:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # 6 source files, only 1 has a test (83% gap)
+        for i in range(6):
+            (tmp_path / f"svc_{i}.py").write_text(f"def fn_{i}():\n    pass\n")
+        (tmp_path / "test_svc_0.py").write_text(
+            "from svc_0 import fn_0\ndef test_fn_0():\n    fn_0()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "test coverage gap" in out, (
+            f"Expected 'test coverage gap' for high untested ratio; got:\n{out}"
+        )
+
+    def test_coverage_gap_absent_when_well_tested(self, tmp_path):
+        """Well-tested codebase (< 30% gap) → 'test coverage gap:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_overview
+
+        # 4 source files, all with tests
+        for i in range(4):
+            (tmp_path / f"mod_{i}.py").write_text(f"def fn_{i}():\n    pass\n")
+            (tmp_path / f"test_mod_{i}.py").write_text(
+                f"from mod_{i} import fn_{i}\ndef test_fn_{i}():\n    fn_{i}()\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "test coverage gap" not in out, (
+            f"'test coverage gap' must not appear for fully-tested codebase; got:\n{out}"
+        )
+
+
+class TestDiffCrossModuleImpact:
+    """S143: Diff — 'cross-module impact: N modules touched (mod1, mod2, ...)'."""
+
+    def test_cross_module_shown_when_many_modules(self, tmp_path):
+        """Diff touching 3+ modules → 'cross-module impact:' shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        for mod in ["alpha", "beta", "gamma"]:
+            (tmp_path / mod).mkdir()
+            (tmp_path / mod / "__init__.py").write_text("")
+            (tmp_path / mod / "core.py").write_text(f"def {mod}_fn():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        changed = ["alpha/core.py", "beta/core.py", "gamma/core.py"]
+        out = render_diff_context(g, changed)
+        assert "cross-module impact" in out, (
+            f"Expected 'cross-module impact' when diff touches 3 modules; got:\n{out}"
+        )
+
+    def test_cross_module_absent_for_single_module(self, tmp_path):
+        """Diff touching only 1 module → 'cross-module impact:' NOT shown."""
+        from tempograph.builder import build_graph
+        from tempograph.render import render_diff_context
+
+        (tmp_path / "mymod").mkdir()
+        (tmp_path / "mymod" / "__init__.py").write_text("")
+        (tmp_path / "mymod" / "a.py").write_text("def fn_a():\n    pass\n")
+        (tmp_path / "mymod" / "b.py").write_text("def fn_b():\n    pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, ["mymod/a.py", "mymod/b.py"])
+        assert "cross-module impact" not in out, (
+            f"'cross-module impact' must not appear for single-module diff; got:\n{out}"
+        )
