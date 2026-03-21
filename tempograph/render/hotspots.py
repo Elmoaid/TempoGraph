@@ -2360,5 +2360,16 @@ def _collect_hotspots_signals(
                 f" — changes affect every subclass and instance in the hierarchy"
             )
 
+    # S766: File concentration — top 3 hotspots all live in the same file (single-file bottleneck).
+    # When the top hotspots are all in one file, that file is a structural bottleneck;
+    # it concentrates change risk and merge conflicts into a single location.
+    if len(scores) >= 3:
+        _fps766 = [sym.file_path for _, sym in scores[:3] if sym is not None]
+        if len(_fps766) == 3 and len(set(_fps766)) == 1 and not _is_test_file(_fps766[0]):
+            out.append(
+                f"\nfile concentration: top 3 hotspots all in {_fps766[0].rsplit('/', 1)[-1]}"
+                f" — single-file bottleneck; split into smaller modules to reduce merge conflicts"
+            )
+
     return out
 

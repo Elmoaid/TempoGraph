@@ -36034,3 +36034,231 @@ class TestDeadEventHandlersS761:
         assert "dead event handlers" not in out, (
             f"'dead event handlers' must not appear when event handler is called; got:\n{out}"
         )
+
+# ---------------------------------------------------------------------------
+# S762 – S767
+# ---------------------------------------------------------------------------
+
+# ── S762: Async focus ─────────────────────────────────────────────────────────
+
+class TestAsyncFocusS762:
+    """S762: Focused function is async emits async-focus signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "svc.py").write_text(
+            "async def fetch_data(url):\n    return {}\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from svc import fetch_data\nasync def run(): await fetch_data('http://x')\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "fetch_data")
+        assert "async focus" in out, (
+            f"Expected 'async focus' for async def function; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.focused import render_focused
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text("def process(data): return data\n")
+        (tmp_path / "app.py").write_text(
+            "from utils import process\ndef run(x): return process(x)\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "process")
+        assert "async focus" not in out, (
+            f"'async focus' must not appear for synchronous function; got:\n{out}"
+        )
+
+
+# ── S763: Classless repo ──────────────────────────────────────────────────────
+
+class TestClasslessRepoS763:
+    """S763: Repo with no classes but 5+ functions emits classless-repo signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text(
+            "def fn_a(): pass\ndef fn_b(): pass\ndef fn_c(): pass\n"
+            "def fn_d(): pass\ndef fn_e(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "classless repo" in out, (
+            f"Expected 'classless repo' for purely functional codebase; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.overview import render_overview
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text(
+            "class Service:\n    def run(self): pass\n"
+            "def fn_a(): pass\ndef fn_b(): pass\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_overview(g)
+        assert "classless repo" not in out, (
+            f"'classless repo' must not appear when classes exist; got:\n{out}"
+        )
+
+
+# ── S764: Large API file ──────────────────────────────────────────────────────
+
+class TestLargeAPIFileS764:
+    """S764: Blast target exports 10+ top-level symbols emits large-API-file signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        fns = "\n".join(f"def fn_{i}(): pass" for i in range(12))
+        (tmp_path / "api.py").write_text(fns + "\n")
+        (tmp_path / "app.py").write_text(
+            "from api import fn_0\ndef run(): fn_0()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "api.py")
+        assert "large API file" in out, (
+            f"Expected 'large API file' for file with 12 exported symbols; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.blast import render_blast_radius
+        from tempograph.builder import build_graph
+
+        (tmp_path / "utils.py").write_text(
+            "def helper_a(): pass\ndef helper_b(): pass\n"
+        )
+        (tmp_path / "app.py").write_text(
+            "from utils import helper_a\ndef run(): helper_a()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_blast_radius(g, "utils.py")
+        assert "large API file" not in out, (
+            f"'large API file' must not appear for file with only 2 symbols; got:\n{out}"
+        )
+
+
+# ── S765: Root-level file in diff ─────────────────────────────────────────────
+
+class TestRootLevelFileDiffS765:
+    """S765: Diff contains root-level source files emits root-level-file signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "main.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["main.py"])
+        assert "root-level file" in out, (
+            f"Expected 'root-level file' when diff contains root-level source; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.diff import render_diff_context
+        from tempograph.builder import build_graph
+
+        (tmp_path / "app.py").write_text("def run(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_diff_context(g, changed_files=["config.yaml"])
+        assert "root-level file" not in out, (
+            f"'root-level file' must not appear for non-source files; got:\n{out}"
+        )
+
+
+# ── S766: File concentration ──────────────────────────────────────────────────
+
+class TestFileConcentrationS766:
+    """S766: Top 3 hotspots all in same file emits file-concentration signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # 3 complex functions all in core.py, each called by many callers
+        (tmp_path / "core.py").write_text(
+            "def fn_a(a,b,c,d):\n    if a:\n        if b:\n            if c:\n                if d: return a\n                return b\n            return c\n        return d\n    return 0\n"
+            "def fn_b(a,b,c,d):\n    if a:\n        if b:\n            if c:\n                if d: return a\n                return b\n            return c\n        return d\n    return 0\n"
+            "def fn_c(a,b,c,d):\n    if a:\n        if b:\n            if c:\n                if d: return a\n                return b\n            return c\n        return d\n    return 0\n"
+        )
+        for i in range(5):
+            (tmp_path / f"user_a_{i}.py").write_text(
+                f"from core import fn_a\ndef run_a_{i}(): fn_a(1,2,3,4)\n"
+            )
+        for i in range(4):
+            (tmp_path / f"user_b_{i}.py").write_text(
+                f"from core import fn_b\ndef run_b_{i}(): fn_b(1,2,3,4)\n"
+            )
+        for i in range(3):
+            (tmp_path / f"user_c_{i}.py").write_text(
+                f"from core import fn_c\ndef run_c_{i}(): fn_c(1,2,3,4)\n"
+            )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "file concentration" in out, (
+            f"Expected 'file concentration' when top 3 hotspots share a file; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.hotspots import render_hotspots
+        from tempograph.builder import build_graph
+
+        # 3 functions in different files
+        for name in ("alpha", "beta", "gamma"):
+            (tmp_path / f"{name}.py").write_text(
+                f"def {name}(a,b,c,d):\n    if a:\n        if b:\n            if c:\n                if d: return a\n                return b\n            return c\n        return d\n    return 0\n"
+            )
+            for i in range(3):
+                (tmp_path / f"use_{name}_{i}.py").write_text(
+                    f"from {name} import {name}\ndef run_{name}_{i}(): {name}(1,2,3,4)\n"
+                )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_hotspots(g)
+        assert "file concentration" not in out, (
+            f"'file concentration' must not appear when top hotspots are in different files; got:\n{out}"
+        )
+
+
+# ── S767: Dead getter functions ───────────────────────────────────────────────
+
+class TestDeadGetterFunctionsS767:
+    """S767: Unused get_/fetch_/load_ functions emit dead-getter-functions signal."""
+
+    def test_shown(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "repo.py").write_text(
+            "def get_users(): return []\n"
+            "def fetch_orders(): return []\n"
+        )
+        (tmp_path / "app.py").write_text("def main(): pass\n")
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead getter functions" in out, (
+            f"Expected 'dead getter functions' for unused get_/fetch_ functions; got:\n{out}"
+        )
+
+    def test_absent(self, tmp_path):
+        from tempograph.render.dead import render_dead_code
+        from tempograph.builder import build_graph
+
+        (tmp_path / "repo.py").write_text(
+            "def get_users(): return []\n"
+        )
+        (tmp_path / "svc.py").write_text(
+            "from repo import get_users\ndef list_users(): return get_users()\n"
+        )
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_dead_code(g)
+        assert "dead getter functions" not in out, (
+            f"'dead getter functions' must not appear when getter is called; got:\n{out}"
+        )
