@@ -869,4 +869,24 @@ def render_hotspots(graph: Tempo, *, top_n: int = 20) -> str:
                     f" — consider splitting into smaller classes"
                 )
 
+    # S230: Low-complexity hotspot — top hotspot file's functions all have very low complexity.
+    # High change frequency + low complexity = likely config/data churn, not logic changes.
+    # Only shown when top hotspot file has 3+ fns and avg cx <= 2.
+    if scores:
+        _top230_fp = scores[0][1].file_path
+        _cx_vals230 = [
+            s.complexity for s in graph.symbols.values()
+            if s.file_path == _top230_fp
+            and s.kind.value in ("function", "method")
+            and s.complexity is not None
+        ]
+        if len(_cx_vals230) >= 3:
+            _avg_cx230 = sum(_cx_vals230) / len(_cx_vals230)
+            if _avg_cx230 <= 2:
+                _top230_base = _top230_fp.rsplit("/", 1)[-1]
+                lines.append(
+                    f"\nlow-complexity hotspot: {_top230_base} avg cx {_avg_cx230:.1f}"
+                    f" — frequently changed but simple; likely config/data churn"
+                )
+
     return "\n".join(lines)

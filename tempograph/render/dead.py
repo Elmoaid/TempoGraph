@@ -417,6 +417,28 @@ def render_dead_code(graph: Tempo, *, max_symbols: int = 50, max_tokens: int = 8
             f" — abandoned initialization paths"
         )
 
+        # S232: Dead serializers — serialize/to_dict/from_dict/to_json fns with 0 callers.
+    # Dead serializers often indicate abandoned API shapes or migration leftovers.
+    # Only shown when 1+ dead serializer function found (conf >= 40).
+    _s232_ser_patterns = ("serialize_", "deserialize_", "to_dict", "from_dict",
+                          "to_json", "from_json", "to_xml", "from_xml", "marshal_", "unmarshal_")
+    _s232_dead_sers = [
+        sym for sym, conf in scored
+        if conf >= 40
+        and not _is_test_file(sym.file_path)
+        and sym.kind.value in ("function", "method")
+        and any(sym.name.startswith(p) or sym.name == p for p in _s232_ser_patterns)
+    ]
+    if len(_s232_dead_sers) >= 1:
+        _ser_names = [s.name for s in _s232_dead_sers[:3]]
+        _ser_str = ", ".join(_ser_names)
+        if len(_s232_dead_sers) > 3:
+            _ser_str += f" +{len(_s232_dead_sers) - 3} more"
+        lines.append(
+            f"dead serializers: {len(_s232_dead_sers)} unused serialize/marshal fn(s) ({_ser_str})"
+            f" — abandoned API shapes or migration leftovers"
+        )
+
         # S225: Dead validators — validate_*/check_* functions with 0 callers (conf >= 40).
     # Dead validators suggest removed feature gates or abandoned data integrity checks.
     # Only shown when 2+ such dead validator functions found.
