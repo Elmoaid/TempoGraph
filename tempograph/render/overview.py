@@ -849,6 +849,33 @@ def render_overview(graph: Tempo) -> str:
         if _lc_avg >= 50:  # skip trivial repos with tiny stubs
             lines.append(f"avg file size: {_lc_avg} lines (median: {_lc_median}, n={len(_src_line_counts)} files)")
 
+    # S119: Deepest import chain — the source file with the highest import depth from root.
+    # Deeply-nested files are fragile: a change anywhere up the chain cascades down.
+    # Only shown when there are 5+ source files and max depth >= 4.
+    _src_fps_depth = [fp for fp in graph.files if not _is_test_file(fp)]
+    if len(_src_fps_depth) >= 5:
+        _max_depth = 0
+        _deepest_fp = ""
+        for _dfp in _src_fps_depth:
+            # BFS depth from this file up the importer chain
+            _visited: set[str] = set()
+            _queue = [(_dfp, 0)]
+            _local_max = 0
+            while _queue:
+                _cur, _d = _queue.pop(0)
+                if _cur in _visited:
+                    continue
+                _visited.add(_cur)
+                _local_max = max(_local_max, _d)
+                for _imp in graph.importers_of(_cur):
+                    if _imp not in _visited and not _is_test_file(_imp):
+                        _queue.append((_imp, _d + 1))
+            if _local_max > _max_depth:
+                _max_depth = _local_max
+                _deepest_fp = _dfp
+        if _max_depth >= 4:
+            lines.append(f"deepest import chain: {_deepest_fp.rsplit('/', 1)[-1]} ({_max_depth} hops from root)")
+
     # Circular imports: flag immediately in overview so agents don't miss them.
     # Details are in `--mode deps` but overview gives a quick count + first cycle.
     try:
