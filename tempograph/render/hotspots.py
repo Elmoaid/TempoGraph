@@ -2978,5 +2978,45 @@ def _collect_hotspots_signals(
                 f" — hotspot concentration; a single regression here degrades two critical paths simultaneously"
             )
 
+    # S1018: Hot cascade — top hotspot file is imported by other hot files.
+    # When the top hotspot's importers are themselves hot (actively churning), a change
+    # here doesn't just ripple to cold files — it disrupts files already being modified,
+    # raising the risk of merge conflicts and concurrent regression.
+    # Only shown when 2+ hot importers exist (single overlap could be coincidence).
+    if scores and graph.hot_files:
+        _top_fp1018 = scores[0][1].file_path
+        if not _is_test_file(_top_fp1018):
+            _importers1018 = graph.importers_of(_top_fp1018)
+            _hot_importers1018 = [
+                fp for fp in _importers1018
+                if fp in graph.hot_files and not _is_test_file(fp)
+            ]
+            if len(_hot_importers1018) >= 2:
+                _hi_names = [fp.rsplit("/", 1)[-1] for fp in sorted(_hot_importers1018)[:3]]
+                _hi_str = ", ".join(_hi_names)
+                if len(_hot_importers1018) > 3:
+                    _hi_str += f" +{len(_hot_importers1018) - 3} more"
+                out.append(
+                    f"\nhot cascade: {_top_fp1018.rsplit('/', 1)[-1]} is imported by {len(_hot_importers1018)} hot files"
+                    f" ({_hi_str}) — a change here disrupts files already in active churn"
+                )
+
+    # S1020: Singleton hotspot — top hotspot's file contains only one function.
+    # A single-function file at the top of hotspots scores as a whole-file risk;
+    # there is no sibling context to help understand intent, making safe changes harder.
+    if scores:
+        _top1020 = scores[0][1]
+        if _top1020 is not None and not _is_test_file(_top1020.file_path):
+            _file_syms1020 = [
+                s for s in graph.symbols.values()
+                if s.file_path == _top1020.file_path and s.kind.value in ("function", "method")
+            ]
+            if len(_file_syms1020) == 1:
+                _fname1020 = _top1020.file_path.replace("\\", "/").rsplit("/", 1)[-1]
+                out.append(
+                    f"\nsingleton hotspot: {_top1020.name} is the only function in {_fname1020}"
+                    f" — whole-file risk with no sibling context; changes are harder to scope safely"
+                )
+
     return out
 
