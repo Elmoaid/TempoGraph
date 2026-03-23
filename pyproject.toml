@@ -71,6 +71,21 @@ Issues = "https://github.com/Elmoaid/tempograph/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tempograph", "tempo"]
+exclude = [
+    "tempo/ui",
+]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "tempo/ui",
+    ".worktrees",
+    ".tempograph",
+    ".claude",
+    "notes",
+    "plans",
+    "bench",
+    "dist",
+]
 
 [tool.pytest.ini_options]
 norecursedirs = ["archive", "bench", "node_modules", ".git", "tempo/ui", "dist", ".tempograph", ".worktrees", ".claude"]
