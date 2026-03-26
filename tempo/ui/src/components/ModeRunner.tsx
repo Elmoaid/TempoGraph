@@ -2,6 +2,7 @@ import { useModeRunner } from "./useModeRunner";
 import { CommandPalette } from "./CommandPalette";
 import { KitBuilder } from "./KitBuilder";
 import { ShortcutHelpOverlay } from "./ShortcutHelpOverlay";
+import { WhichKeyOverlay } from "./WhichKeyOverlay";
 import { MODES } from "./modes";
 import { SidebarTabs } from "./SidebarTabs";
 import { OutputPanel } from "./OutputPanel";
@@ -37,6 +38,9 @@ export function ModeRunner({ repoPath, excludeDirs }: Props) {
       )}
       {vm.showHelp && (
         <ShortcutHelpOverlay onClose={() => vm.setHelpOpen(false)} />
+      )}
+      {vm.showWhichKey && !vm.showHelp && (
+        <WhichKeyOverlay />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <SidebarTabs
@@ -94,6 +98,8 @@ export function ModeRunner({ repoPath, excludeDirs }: Props) {
           onSearchClose={vm.onSearchClose}
           onSearchNavigate={vm.onSearchNavigate}
           onFeedback={vm.submitFeedback}
+          suggestions={vm.suggestions}
+          onSuggestionClick={vm.runSuggestion}
         />
       </div>
     </>
