@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Build mode choices from registered plugins
     plugin_modes = sorted(reg.status()["modes"].keys())
-    all_modes = plugin_modes + ["stats", "prepare", "report", "serve", "plugins"]
+    all_modes = plugin_modes + ["stats", "prepare", "report", "serve", "plugins", "graph_data"]
 
     parser = argparse.ArgumentParser(
         prog="tempo",
@@ -137,6 +137,53 @@ def main(argv: list[str] | None = None) -> int:
         from tempograph.prepare import render_prepare
         output = render_prepare(graph, args.query or "understand this codebase", args.max_tokens, args.task_type or "")
         print(output)
+        return 0
+
+    if args.mode == "graph_data":
+        from collections import defaultdict
+        dir_stats: dict[str, dict] = defaultdict(lambda: {"files": 0, "lines": 0, "symbols": 0, "languages": set()})
+        file_nodes = []
+        edge_map: dict[tuple[str, str], int] = defaultdict(int)
+
+        for fp, fi in graph.files.items():
+            parts = fp.split("/")
+            dir_name = parts[0] + "/" if len(parts) > 1 else "./"
+            ds = dir_stats[dir_name]
+            ds["files"] += 1
+            ds["lines"] += fi.line_count
+            ds["symbols"] += len(fi.symbols)
+            ds["languages"].add(fi.language.value)
+
+            sym_count = len(fi.symbols)
+            dead_count = sum(1 for sid in fi.symbols if sid in graph.symbols and len(graph.callers_of(sid)) == 0 and graph.symbols[sid].exported)
+            dead_pct = (dead_count / sym_count * 100) if sym_count > 0 else 0
+            cxs = [graph.symbols[sid].complexity for sid in fi.symbols if sid in graph.symbols and graph.symbols[sid].complexity]
+            avg_cx = sum(cxs) / len(cxs) if cxs else 0
+
+            health = "stable"
+            if dead_pct > 80:
+                health = "dead"
+            elif avg_cx > 50:
+                health = "hotspot"
+            elif sym_count > 0 and dead_pct < 20 and avg_cx < 20:
+                health = "healthy"
+
+            file_nodes.append({"id": fp, "dir": dir_name, "lines": fi.line_count, "lang": fi.language.value,
+                               "syms": sym_count, "cx": round(avg_cx, 1), "dead_pct": round(dead_pct, 1), "health": health})
+
+        for edge in graph.edges:
+            src_file = graph.symbols[edge.source_id].file_path if edge.source_id in graph.symbols else None
+            tgt_file = graph.symbols[edge.target_id].file_path if edge.target_id in graph.symbols else None
+            if src_file and tgt_file and src_file != tgt_file:
+                key = (src_file, tgt_file) if src_file < tgt_file else (tgt_file, src_file)
+                edge_map[key] += 1
+
+        directories = [{"id": d, "files": s["files"], "lines": s["lines"], "syms": s["symbols"], "langs": sorted(s["languages"])}
+                       for d, s in sorted(dir_stats.items())]
+        edges = [{"s": s, "t": t, "w": w} for (s, t), w in sorted(edge_map.items(), key=lambda x: -x[1])[:2000]]
+
+        print(json.dumps({"repo": graph.root, "stats": stats, "build_ms": int(elapsed * 1000),
+                           "directories": directories, "files": file_nodes, "edges": edges}))
         return 0
 
     # Run via plugin registry
