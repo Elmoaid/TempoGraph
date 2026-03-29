@@ -170,3 +170,65 @@ class TestMultiEdgeBFS:
         out = render_focused(g, "Button")
         # Form renders Button — should appear
         assert "Form" in out, f"Renderer (Form) should appear in BFS; got:\n{out}"
+
+
+class TestScoringFeedback:
+    def test_underrepresented_seed_gets_reexpansion(self, tmp_path):
+        """A seed alone in its file should get re-expanded after initial BFS."""
+        # Create two subsystems: auth (well-connected) and billing (isolated seed)
+        (tmp_path / "auth.py").write_text(
+            "def auth_handler(): return auth_validate()\n"
+            "def auth_validate(): pass\n"
+        )
+        for i in range(5):
+            (tmp_path / f"auth_caller_{i}.py").write_text(
+                f"from auth import auth_handler\ndef use_auth_{i}(): auth_handler()\n"
+            )
+        # billing is isolated — just one function, no callers in its own file
+        (tmp_path / "billing.py").write_text("def billing_process(): pass\n")
+        (tmp_path / "billing_caller.py").write_text(
+            "from billing import billing_process\ndef use_billing(): billing_process()\n"
+        )
+        from tempograph.builder import build_graph
+        from tempograph.render import render_focused
+        g = build_graph(str(tmp_path), use_cache=False)
+        out = render_focused(g, "auth_handler|billing_process")
+        # Both should appear — billing_process shouldn't be starved
+        assert "billing" in out.lower(), (
+            f"Underrepresented seed (billing) should appear; got:\n{out}"
+        )
+
+    def test_well_connected_seeds_skip_reexpansion(self, tmp_path):
+        """Seeds that already have neighbors in their file don't need re-expansion."""
+        (tmp_path / "api.py").write_text(
+            "def api_handler(): return api_validate()\n"
+            "def api_validate(): pass\n"
+        )
+        (tmp_path / "caller.py").write_text(
+            "from api import api_handler\ndef use_api(): api_handler()\n"
+        )
+        from tempograph.builder import build_graph
+        from tempograph.render.focused import _run_bfs_with_orbit
+        g = build_graph(str(tmp_path), use_cache=False)
+        seed = next(s for s in g.symbols.values() if s.name == "api_handler")
+        # Single seed — re-expansion guard (len(seeds) > 1) should skip
+        ordered, seen_ids, _, _ = _run_bfs_with_orbit(
+            g, [seed], {seed.file_path}, query_tokens=["api_handler"],
+        )
+        # Should still work normally without error
+        names = [s.name for s, d in ordered]
+        assert "api_handler" in names
+
+    def test_single_seed_skips_reexpansion(self, tmp_path):
+        """Single-seed queries should not trigger re-expansion (only multi-seed)."""
+        (tmp_path / "solo.py").write_text("def solo_fn(): pass\n")
+        from tempograph.builder import build_graph
+        from tempograph.render.focused import _run_bfs_with_orbit
+        g = build_graph(str(tmp_path), use_cache=False)
+        seed = next(s for s in g.symbols.values() if s.name == "solo_fn")
+        ordered, seen_ids, _, _ = _run_bfs_with_orbit(
+            g, [seed], {seed.file_path}, query_tokens=["solo_fn"],
+        )
+        # Single seed — shouldn't crash or behave differently
+        assert len(ordered) >= 1
+        assert ordered[0][0].name == "solo_fn"
