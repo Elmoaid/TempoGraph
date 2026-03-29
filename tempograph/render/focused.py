@@ -5556,6 +5556,32 @@ def _run_bfs_with_orbit(
             ordered, seen_ids = _ext_ordered, _ext_seen
             _depth_extended = True
 
+    # Post-BFS re-expansion for underrepresented seeds: if a seed is the only
+    # BFS node in its file, it likely got starved by better-connected neighbors.
+    # Give it +1 depth re-expansion so its local neighborhood appears.
+    if len(seeds) > 1:
+        _file_node_counts: dict[str, int] = {}
+        for node, _d in ordered:
+            fp = node.file_path
+            _file_node_counts[fp] = _file_node_counts.get(fp, 0) + 1
+
+        _underrep = [
+            s for s in seeds
+            if _file_node_counts.get(s.file_path, 0) <= 1
+        ]
+        if _underrep and len(ordered) < 50 - 3:
+            _reexp_depth = _initial_depth + 1
+            if _depth_extended:
+                _reexp_depth = _initial_depth + 2
+            for s in _underrep[:3]:
+                _extra, _extra_seen = _bfs_expand(
+                    graph, [s], {s.file_path}, max_depth=_reexp_depth,
+                )
+                for node, depth in _extra:
+                    if node.id not in seen_ids and len(ordered) < 50:
+                        ordered.append((node, depth))
+                        seen_ids.add(node.id)
+
     return ordered, seen_ids, orbit_seed_meta, _depth_extended
 
 
