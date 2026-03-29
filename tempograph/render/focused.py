@@ -3177,42 +3177,40 @@ def _signals_focused_naming(
     # S368: Generic symbol name — focused symbol has a very generic, collision-prone name.
     # Generic names like "run", "process", "execute" increase search noise and make
     # symbol lookup ambiguous; many unrelated symbols share these names across the codebase.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim368 = _seed_syms[0] if _seed_syms else None
-        if _prim368:
-            _generic_names368 = {
-                "run", "execute", "process", "handle", "call", "invoke",
-                "start", "stop", "init", "setup", "load", "save", "get", "set",
-                "update", "delete", "create", "parse", "format", "validate",
-            }
-            if _prim368.name.lower() in _generic_names368:
-                # Count how many symbols share this exact name
-                _same_name368 = [
-                    s for s in graph.symbols.values()
-                    if s.name.lower() == _prim368.name.lower() and s.id != _prim368.id
-                ]
-                if _same_name368:
-                    lines.append(
-                        f"\ngeneric name: '{_prim368.name}' shared by {len(_same_name368) + 1} symbols"
-                        f" — highly generic; refine to intent-revealing name to reduce search ambiguity"
-                    )
-
-    # S374: Deprecated symbol — focused symbol's name contains legacy/deprecated markers.
-    # Symbols named with "old_", "legacy_", "deprecated_", "v1_", "_v1" signal known tech debt;
-    # callers may not know about the newer alternative, causing ongoing use of deprecated paths.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim374 = _seed_syms[0] if _seed_syms else None
-        if _prim374:
-            _dep_markers374 = (
-                "old_", "legacy_", "deprecated_", "_old", "_legacy", "_deprecated",
-                "v1_", "_v1", "v2_", "_v2", "obsolete_", "_obsolete",
-            )
-            _is_dep374 = any(_prim374.name.lower().startswith(m) or _prim374.name.lower().endswith(m) for m in _dep_markers374)
-            if _is_dep374:
-                lines.append(
-                    f"\ndeprecated: {_prim374.name} has a deprecated/legacy naming marker"
-                    f" — callers may not know newer alternative exists; document replacement or remove"
+    # S368: Generic name — PRUNED: name quality — agent can see the name
+    # S374: Deprecated symbol — PRUNED: name quality — agent can see legacy/old in name
+    if False:  # PRUNED: name quality
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim368 = _seed_syms[0] if _seed_syms else None
+            if _prim368:
+                _generic_names368 = {
+                    "run", "execute", "process", "handle", "call", "invoke",
+                    "start", "stop", "init", "setup", "load", "save", "get", "set",
+                    "update", "delete", "create", "parse", "format", "validate",
+                }
+                if _prim368.name.lower() in _generic_names368:
+                    _same_name368 = [
+                        s for s in graph.symbols.values()
+                        if s.name.lower() == _prim368.name.lower() and s.id != _prim368.id
+                    ]
+                    if _same_name368:
+                        lines.append(
+                            f"\ngeneric name: '{_prim368.name}' shared by {len(_same_name368) + 1} symbols"
+                            f" — highly generic; refine to intent-revealing name to reduce search ambiguity"
+                        )
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim374 = _seed_syms[0] if _seed_syms else None
+            if _prim374:
+                _dep_markers374 = (
+                    "old_", "legacy_", "deprecated_", "_old", "_legacy", "_deprecated",
+                    "v1_", "_v1", "v2_", "_v2", "obsolete_", "_obsolete",
                 )
+                _is_dep374 = any(_prim374.name.lower().startswith(m) or _prim374.name.lower().endswith(m) for m in _dep_markers374)
+                if _is_dep374:
+                    lines.append(
+                        f"\ndeprecated: {_prim374.name} has a deprecated/legacy naming marker"
+                        f" — callers may not know newer alternative exists; document replacement or remove"
+                    )
 
     return lines
 
@@ -3278,6 +3276,7 @@ def _fn_trait_recursive(graph: Tempo, prim: "Symbol") -> "str | None":
 
 def _fn_trait_property(prim: "Symbol") -> "str | None":
     """S244: Property accessor — @property or getter with no extra params."""
+    return None  # PRUNED: taxonomic label — agent sees @property in signature
     if prim.kind.value != "method":
         return None
     sig = prim.signature or ""
@@ -3301,6 +3300,7 @@ def _fn_trait_property(prim: "Symbol") -> "str | None":
 
 def _fn_trait_abstract(graph: Tempo, prim: "Symbol") -> "str | None":
     """S249: Abstract method — cascades signature changes to all implementations."""
+    return None  # PRUNED: taxonomic label — agent sees @abstractmethod in signature
     if prim.kind.value not in ("function", "method"):
         return None
     sig = prim.signature or ""
@@ -3509,12 +3509,13 @@ def _signals_fn_oop_class_prop(
     _prim_cls = next((s for s in _seed_syms if s.kind.value == "class"), None)
     if _prim_cls and not _is_test_file(_prim_cls.file_path):
         _children = graph.children_of(_prim_cls.id)
-        # S576: Empty class
-        if not [c for c in _children if c.kind.value in ("method", "class", "function")]:
-            lines.append(
-                f"\nempty class: {_prim_cls.name} has no methods"
-                f" — pure stub or data container; consider @dataclass, TypedDict, or NamedTuple"
-            )
+        # S576: Empty class — PRUNED: taxonomic label — agent sees empty class body
+        if False:  # PRUNED: taxonomic label
+            if not [c for c in _children if c.kind.value in ("method", "class", "function")]:
+                lines.append(
+                    f"\nempty class: {_prim_cls.name} has no methods"
+                    f" — pure stub or data container; consider @dataclass, TypedDict, or NamedTuple"
+                )
         # S690: Method-heavy class
         _methods = [c for c in _children if c.kind.value in ("method", "function")]
         if len(_methods) >= 10:
@@ -3541,22 +3542,23 @@ def _signals_fn_oop_abstract_proto(
     _prim = next((s for s in _seed_syms if s.kind.value in ("function", "method")), None)
     if not _prim:
         return lines
-    # S428: Abstract method
-    if _prim.parent_id:
-        _parent = graph.symbols.get(_prim.parent_id)
-        _base_kws = ("base", "abstract", "interface", "protocol", "mixin")
-        if _parent and any(kw in _parent.name.lower() for kw in _base_kws):
-            _subclass_impls = [
-                s for s in graph.symbols.values()
-                if s.name == _prim.name and s.id != _prim.id
-                and s.kind.value in ("function", "method") and s.file_path != _prim.file_path
-            ]
-            if _subclass_impls:
-                lines.append(
-                    f"\nabstract method: {_prim.name} is from {_parent.name}"
-                    f" with {len(_subclass_impls)} concrete implementation(s)"
-                    f" — changes will cascade to all concrete classes; review each subclass"
-                )
+    # S428: Abstract method — PRUNED: taxonomic label — agent sees Base/Abstract in class name
+    if False:  # PRUNED: taxonomic label
+        if _prim.parent_id:
+            _parent = graph.symbols.get(_prim.parent_id)
+            _base_kws = ("base", "abstract", "interface", "protocol", "mixin")
+            if _parent and any(kw in _parent.name.lower() for kw in _base_kws):
+                _subclass_impls = [
+                    s for s in graph.symbols.values()
+                    if s.name == _prim.name and s.id != _prim.id
+                    and s.kind.value in ("function", "method") and s.file_path != _prim.file_path
+                ]
+                if _subclass_impls:
+                    lines.append(
+                        f"\nabstract method: {_prim.name} is from {_parent.name}"
+                        f" with {len(_subclass_impls)} concrete implementation(s)"
+                        f" — changes will cascade to all concrete classes; review each subclass"
+                    )
     # S451: Protocol/interface method
     _prim_m = next((s for s in _seed_syms if s.kind.value == "method"), None)
     if _prim_m and _prim_m.parent_id:
@@ -3824,6 +3826,7 @@ def _signals_fn_conventions_naming(
     graph: "Tempo", _seed_syms: list, _prim: object,
 ) -> list[str]:
     """S470/S558/S593/S654: name-quality signals (deprecated, builtin shadow, generic name)."""
+    return []  # PRUNED: name quality — agent can see the name in the signature
     lines: list[str] = []
     # S470: Deprecated function
     _dep_markers = ("deprecated", "legacy", "old_", "_old", "_deprecated", "_legacy", "compat_")
@@ -4263,23 +4266,22 @@ def _signals_fn_props_a_class(
                 f" — look at the source counterpart for implementation details"
             )
 
-    # S720: Deprecated caller — a caller of the focused symbol has a deprecated name.
-    # If active code is being called by deprecated functions, the focused symbol may be on a
-    # removal path — callers marked old/legacy/deprecated signal incomplete migration.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim720 = _seed_syms[0]
-        if not _is_test_file(_prim720.file_path):
-            _callers720 = graph.callers_of(_prim720.id)
-            _dep_callers720 = [
-                c for c in _callers720
-                if any(kw in c.name.lower() for kw in ("old", "legacy", "deprecated"))
-            ]
-            if _dep_callers720:
-                _dc_names720 = ", ".join(c.name for c in _dep_callers720[:2])
-                lines.append(
-                    f"\ndeprecated caller: {_prim720.name} is called by deprecated code ({_dc_names720})"
-                    f" — this symbol may be on a removal path; check if it should be migrated"
-                )
+    # S720: Deprecated caller — PRUNED: name quality — guesses deprecation from name patterns
+    if False:  # PRUNED: name quality
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim720 = _seed_syms[0]
+            if not _is_test_file(_prim720.file_path):
+                _callers720 = graph.callers_of(_prim720.id)
+                _dep_callers720 = [
+                    c for c in _callers720
+                    if any(kw in c.name.lower() for kw in ("old", "legacy", "deprecated"))
+                ]
+                if _dep_callers720:
+                    _dc_names720 = ", ".join(c.name for c in _dep_callers720[:2])
+                    lines.append(
+                        f"\ndeprecated caller: {_prim720.name} is called by deprecated code ({_dc_names720})"
+                        f" — this symbol may be on a removal path; check if it should be migrated"
+                    )
 
     # S726: Multiple inheritance — the focused class inherits from 2 or more base classes.
     # Multiple inheritance creates complex MRO chains and is a common source of subtle bugs;
@@ -4488,21 +4490,20 @@ def _signals_fn_props_a_scope_conventions(
 ) -> list[str]:
     """S786/S792/S798: dunder method, long function, underscore-but-exported signals."""
     lines: list[str] = []
-    # S786: Dunder method focus — focused symbol is a dunder (special) method.
-    # Dunder methods define Python protocol behavior (__init__, __call__, __iter__, etc.);
-    # changing them affects how the object participates in Python's built-in operations.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim786 = _seed_syms[0]
-        if (
-            _prim786.kind.value in ("function", "method")
-            and _prim786.parent_id is not None
-            and _prim786.name.startswith("__") and _prim786.name.endswith("__")
-            and not _is_test_file(_prim786.file_path)
-        ):
-            lines.append(
-                f"\ndunder method: {_prim786.name} is a Python protocol method"
-                f" — changes affect built-in operations (iteration, comparison, context managers, etc.)"
-            )
+    # S786: Dunder method focus — PRUNED: taxonomic label — agent sees __dunder__ in signature
+    if False:  # PRUNED: taxonomic label
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim786 = _seed_syms[0]
+            if (
+                _prim786.kind.value in ("function", "method")
+                and _prim786.parent_id is not None
+                and _prim786.name.startswith("__") and _prim786.name.endswith("__")
+                and not _is_test_file(_prim786.file_path)
+            ):
+                lines.append(
+                    f"\ndunder method: {_prim786.name} is a Python protocol method"
+                    f" — changes affect built-in operations (iteration, comparison, context managers, etc.)"
+                )
 
     # S792: Long function — focused function spans 50+ lines.
     # Functions longer than 50 lines are hard to read in one mental pass;
@@ -4584,15 +4585,16 @@ def _signals_fn_props_b_entry_fn_type(
                 f" — changes affect startup sequencing and all initialization logic"
             )
 
-    # S810: Deprecated symbol focus — focused symbol has a deprecation notice in its docstring.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim810 = _seed_syms[0]
-        _doc810 = (_prim810.doc or "").lower()
-        if "deprecated" in _doc810 and not _is_test_file(_prim810.file_path):
-            lines.append(
-                f"\ndeprecated symbol: {_prim810.name} has a deprecation notice in its docstring"
-                f" — verify all callers have migrated to the replacement before modifying"
-            )
+    # S810: Deprecated symbol focus — PRUNED: name quality — agent sees docstring
+    if False:  # PRUNED: name quality
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim810 = _seed_syms[0]
+            _doc810 = (_prim810.doc or "").lower()
+            if "deprecated" in _doc810 and not _is_test_file(_prim810.file_path):
+                lines.append(
+                    f"\ndeprecated symbol: {_prim810.name} has a deprecation notice in its docstring"
+                    f" — verify all callers have migrated to the replacement before modifying"
+                )
 
     # S816: Zero-argument function focus — focused function takes no parameters at all.
     if _seed_syms and token_count < max_tokens - 30:
@@ -4719,26 +4721,25 @@ def _signals_fn_props_b_oop_class(
 ) -> list[str]:
     """S858, S882: abstract-method and class-focus signals."""
     lines: list[str] = []
-    # S858: Abstract method focus — focused method lives in an abstract/base class.
-    # Abstract methods define contracts that all subclasses must implement; changing their
-    # signatures requires updating every concrete implementation in the hierarchy.
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim858 = _seed_syms[0]
-        if (
-            _prim858.kind.value == "method"
-            and not _is_test_file(_prim858.file_path)
-            and _prim858.parent_id is not None
-        ):
-            _parent858 = graph.symbols.get(_prim858.parent_id)
-            if _parent858 and (
-                _parent858.name.startswith("Abstract")
-                or _parent858.name.startswith("Base")
-                or "ABC" in _parent858.name
+    # S858: Abstract method focus — PRUNED: taxonomic label — agent sees Abstract/Base class name
+    if False:  # PRUNED: taxonomic label
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim858 = _seed_syms[0]
+            if (
+                _prim858.kind.value == "method"
+                and not _is_test_file(_prim858.file_path)
+                and _prim858.parent_id is not None
             ):
-                lines.append(
-                    f"\nabstract method: {_prim858.name} is in abstract class {_parent858.name}"
-                    f" — signature changes require updating all concrete subclass implementations"
-                )
+                _parent858 = graph.symbols.get(_prim858.parent_id)
+                if _parent858 and (
+                    _parent858.name.startswith("Abstract")
+                    or _parent858.name.startswith("Base")
+                    or "ABC" in _parent858.name
+                ):
+                    lines.append(
+                        f"\nabstract method: {_prim858.name} is in abstract class {_parent858.name}"
+                        f" — signature changes require updating all concrete subclass implementations"
+                    )
 
     # S882: Class focus — the focused symbol is a class, not a function or method.
     # Focusing on a class shows the whole class; agents should use method-level focus
@@ -4839,18 +4840,17 @@ def _signals_fn_props_b_oop_callers(
                     f" — cross-cutting function; changes require coordinated updates across {len(_caller_files888)} files"
                 )
 
-    # S894: Deprecated file focus — focused symbol is in a file marked as deprecated or legacy.
-    # Files named with legacy/deprecated patterns often contain unmaintained code;
-    # modifications may conflict with replacement implementations elsewhere.
-    _legacy_kws894 = ("deprecated", "legacy", "old_", "_old", "obsolete", "archive", "compat")
-    if _seed_syms and token_count < max_tokens - 30:
-        _prim894 = _seed_syms[0]
-        _fbase894 = _prim894.file_path.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
-        if any(kw in _fbase894 for kw in _legacy_kws894):
-            lines.append(
-                f"\ndeprecated file: {_prim894.name} is in {_prim894.file_path.rsplit('/', 1)[-1]}"
-                f" — file appears deprecated; check if functionality has been migrated before modifying"
-            )
+    # S894: Deprecated file focus — PRUNED: name quality — agent sees file name
+    if False:  # PRUNED: name quality
+        _legacy_kws894 = ("deprecated", "legacy", "old_", "_old", "obsolete", "archive", "compat")
+        if _seed_syms and token_count < max_tokens - 30:
+            _prim894 = _seed_syms[0]
+            _fbase894 = _prim894.file_path.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+            if any(kw in _fbase894 for kw in _legacy_kws894):
+                lines.append(
+                    f"\ndeprecated file: {_prim894.name} is in {_prim894.file_path.rsplit('/', 1)[-1]}"
+                    f" — file appears deprecated; check if functionality has been migrated before modifying"
+                )
 
     return lines
 
@@ -4870,6 +4870,7 @@ def _signals_fn_method_type(
     graph: "Tempo", _seed_syms: list, token_count: int, max_tokens: int,
 ) -> list[str]:
     """S900/S906/S912/S918: property, constructor, dunder, private method signals."""
+    return []  # PRUNED: taxonomic labels — agent sees __init__/@property/_prefix in signature
     lines: list[str] = []
     if not _seed_syms or token_count >= max_tokens - 30:
         return lines
