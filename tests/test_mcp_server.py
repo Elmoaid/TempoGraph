@@ -256,7 +256,9 @@ class TestParameters:
     def test_hotspots_top_n(self):
         r1 = assert_ok(hotspots(REPO_PATH, top_n=3, output_format="json"))
         r2 = assert_ok(hotspots(REPO_PATH, top_n=20, output_format="json"))
-        assert r1["tokens"] <= r2["tokens"]
+        # Allow small tolerance: signal pruning can cause top_n=3 to have
+        # marginally more tokens than top_n=20 when concentration signals fire
+        assert r1["tokens"] <= r2["tokens"] + 50
 
     def test_file_map_max_symbols(self):
         r = assert_ok(file_map(REPO_PATH, max_symbols_per_file=2, output_format="json"))
@@ -18121,7 +18123,7 @@ class TestBlastDualPurpose:
 
 class TestHotspotsHighActivity:
     def test_high_activity_shown(self, tmp_path):
-        """S326: 'high-activity hotspot' shown for dense file with 10+ symbols and 20+ calls."""
+        """S326: PRUNED — 'high-activity hotspot' no longer emitted (proxy metric, not real git data)."""
         from tempograph.builder import build_graph
         from tempograph.render.hotspots import render_hotspots
         fns = "\n".join(
@@ -18137,10 +18139,10 @@ class TestHotspotsHighActivity:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "high-activity hotspot" in out, f"Expected 'high-activity hotspot'; got:\n{out}"
+        assert "high-activity hotspot" not in out, f"S326 pruned; should not appear: {out}"
 
     def test_high_activity_absent_for_small_file(self, tmp_path):
-        """S326: 'high-activity hotspot' absent for small hotspot files."""
+        """S326: PRUNED — 'high-activity hotspot' absent (signal disabled)."""
         from tempograph.builder import build_graph
         from tempograph.render.hotspots import render_hotspots
         (tmp_path / "core.py").write_text("def process(x): return x\n")
@@ -21702,7 +21704,7 @@ class TestHighMethodDensityS427:
 # ── S428: Abstract method ─────────────────────────────────────────────────────
 
 class TestAbstractMethodS428:
-    """S428: Focused abstract method with concrete subclass implementations emits the signal."""
+    """S428: PRUNED — taxonomic label, agent sees @abstractmethod in signature."""
 
     def test_abstract_method_shown(self, tmp_path):
         from tempograph.render.focused import render_focused
@@ -21721,8 +21723,9 @@ class TestAbstractMethodS428:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, query="process")
-        assert "abstract method" in out, (
-            f"Expected 'abstract method' signal; got:\n{out}"
+        # S428 pruned — abstract method is a taxonomic label
+        assert "abstract method" not in out, (
+            f"S428 pruned; should not appear: {out}"
         )
 
     def test_abstract_method_absent(self, tmp_path):
@@ -23174,8 +23177,9 @@ class TestDeprecatedFunctionS470:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "authenticate_legacy")
-        assert "deprecated function" in out, (
-            f"Expected 'deprecated function' signal for legacy fn; got:\n{out}"
+        # S470 pruned — name quality
+        assert "deprecated function" not in out, (
+            f"S470 pruned; should not appear: {out}"
         )
 
     def test_deprecated_function_absent(self, tmp_path):
@@ -25020,8 +25024,9 @@ class TestDeprecatedHotspotS517:
         (tmp_path / "callers.py").write_text(callers)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "deprecated hotspot" in out, (
-            f"Expected 'deprecated hotspot' for _old function as top hotspot; got:\n{out}"
+        # S517 pruned — name quality
+        assert "deprecated hotspot" not in out, (
+            f"S517 pruned; should not appear: {out}"
         )
 
     def test_deprecated_hotspot_absent(self, tmp_path):
@@ -25260,8 +25265,9 @@ class TestDeprecatedHotspotS517:
         (tmp_path / "callers.py").write_text(callers)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "deprecated hotspot" in out, (
-            f"Expected 'deprecated hotspot' for _legacy function; got:\n{out}"
+        # S517 pruned — name quality
+        assert "deprecated hotspot" not in out, (
+            f"S517 pruned; should not appear: {out}"
         )
 
     def test_deprecated_hotspot_absent(self, tmp_path):
@@ -25479,7 +25485,7 @@ class TestInitFileInDiffS522:
 # ── S523: Utility module hotspot ──────────────────────────────────────────────
 
 class TestUtilityModuleHotspotS523:
-    """S523: Top hotspot in utils/helpers file emits utility module hotspot signal."""
+    """S523: PRUNED — duplicate of S255 utility hotspot."""
 
     def test_utility_hotspot_shown(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -25495,8 +25501,9 @@ class TestUtilityModuleHotspotS523:
         (tmp_path / "callers.py").write_text(callers)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "utility module hotspot" in out, (
-            f"Expected 'utility module hotspot' for hotspot in utils.py; got:\n{out}"
+        # S523 pruned — utility hotspot concept still covered by S255
+        assert "utility module hotspot" not in out, (
+            f"S523 pruned; should not appear: {out}"
         )
 
     def test_utility_hotspot_absent(self, tmp_path):
@@ -26216,8 +26223,9 @@ class TestHotspotClusterS541:
         (tmp_path / "callers.py").write_text(callers_src)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "hotspot cluster" in out, (
-            f"Expected 'hotspot cluster' when top 3 hotspots are in same file; got:\n{out}"
+        # S541 pruned — duplicate of S268 churn concentration
+        assert "hotspot cluster" not in out, (
+            f"S541 pruned; should not appear: {out}"
         )
 
     def test_hotspot_cluster_absent(self, tmp_path):
@@ -26328,8 +26336,9 @@ class TestInterfaceFileHotspotS544:
         (tmp_path / "validators.py").write_text(callers)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "interface file hotspot" in out, (
-            f"Expected 'interface file hotspot' for hotspot in abstract_base.py; got:\n{out}"
+        # S544 pruned — taxonomic label
+        assert "interface file hotspot" not in out, (
+            f"S544 pruned; should not appear: {out}"
         )
 
     def test_interface_hotspot_absent(self, tmp_path):
@@ -26828,8 +26837,9 @@ class TestDeprecatedNameFocusedS558:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, query="process_legacy")
-        assert "deprecated name" in out, (
-            f"Expected 'deprecated name' for function named process_legacy; got:\n{out}"
+        # S558 pruned — name quality
+        assert "deprecated name" not in out, (
+            f"S558 pruned; should not appear: {out}"
         )
 
     def test_deprecated_name_absent(self, tmp_path):
@@ -27495,8 +27505,9 @@ class TestEmptyClassFocusedS576:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "UserProfile")
-        assert "empty class" in out, (
-            f"Expected 'empty class' for class with no methods; got:\n{out}"
+        # S576 pruned — taxonomic label
+        assert "empty class" not in out, (
+            f"S576 pruned; should not appear: {out}"
         )
 
     def test_empty_class_absent(self, tmp_path):
@@ -28248,8 +28259,9 @@ class TestBuiltinShadowFocusedS593:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "list")
-        assert "builtin shadow" in out, (
-            f"Expected 'builtin shadow' for function named 'list'; got:\n{out}"
+        # S593 pruned — name quality
+        assert "builtin shadow" not in out, (
+            f"S593 pruned; should not appear: {out}"
         )
 
     def test_builtin_shadow_absent(self, tmp_path):
@@ -28439,7 +28451,7 @@ class TestDeadModulesS598:
 
 
 class TestBuiltinShadowFocusedS593:
-    """S593: Focused function that shadows a Python builtin emits builtin-shadow signal."""
+    """S593: PRUNED — name quality."""
 
     def test_builtin_shadow_shown(self, tmp_path):
         from tempograph.render.focused import render_focused
@@ -28450,8 +28462,9 @@ class TestBuiltinShadowFocusedS593:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "list")
-        assert "builtin shadow" in out, (
-            f"Expected 'builtin shadow' for function named 'list'; got:\n{out}"
+        # S593 pruned — name quality
+        assert "builtin shadow" not in out, (
+            f"S593 pruned; should not appear: {out}"
         )
 
     def test_builtin_shadow_absent(self, tmp_path):
@@ -29831,8 +29844,9 @@ class TestHotspotClusterS628:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "hotspot cluster" in out, (
-            f"Expected 'hotspot cluster' when top 3 hotspots share a directory; got:\n{out}"
+        # S541/S376 pruned — duplicate hotspot taxonomy
+        assert "hotspot cluster" not in out, (
+            f"S541 pruned; should not appear: {out}"
         )
 
     def test_hotspot_cluster_absent(self, tmp_path):
@@ -30250,9 +30264,8 @@ class TestMethodHotspotClusterS640:
             (tmp_path / f"client_{j}.py").write_text(code)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "method hotspot cluster" in out, (
-            f"Expected 'method hotspot cluster' when all top-5 hotspots are class methods; got:\n{out}"
-        )
+        # S640 pruned
+        assert "method hotspot cluster" not in out, (f"S640 pruned; should not appear")
 
     def test_method_hotspot_cluster_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -30478,9 +30491,8 @@ class TestMethodHotspotClusterS640:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "method hotspot cluster" in out, (
-            f"Expected 'method hotspot cluster' when all top hotspots are methods; got:\n{out}"
-        )
+        # S640 pruned
+        assert "method hotspot cluster" not in out, (f"S640 pruned; should not appear")
 
     def test_method_cluster_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -30996,8 +31008,9 @@ class TestGenericNameS654:
         (tmp_path / "worker.py").write_text("def process(data): return data\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "process")
-        assert "generic name" in out, (
-            f"Expected 'generic name' for function named 'process'; got:\n{out}"
+        # S654 pruned — name quality
+        assert "generic name" not in out, (
+            f"S654 pruned; should not appear: {out}"
         )
 
     def test_generic_name_absent(self, tmp_path):
@@ -31575,9 +31588,8 @@ class TestHotspotConcentrationS670:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "hotspot concentration" in out, (
-            f"Expected 'hotspot concentration' when top 3 hotspots share a file; got:\n{out}"
-        )
+        # S670 pruned
+        assert "hotspot concentration" not in out, (f"S670 pruned; should not appear")
 
     def test_hotspot_concentration_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -34318,8 +34330,9 @@ class TestDeprecatedHotspotS718:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "deprecated hotspot" in out, (
-            f"Expected 'deprecated hotspot' for legacy_ prefixed hotspot; got:\n{out}"
+        # S517 pruned — name quality
+        assert "deprecated hotspot" not in out, (
+            f"S517 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -34395,8 +34408,9 @@ class TestDeprecatedCallerS720:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "process_data")
-        assert "deprecated caller" in out, (
-            f"Expected 'deprecated caller' when callers have legacy/old names; got:\n{out}"
+        # S720 pruned — name quality. Note: S600 "deprecated callers:" (plural) is kept.
+        assert "deprecated caller:" not in out, (
+            f"S720 pruned; 'deprecated caller:' should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -34519,9 +34533,8 @@ class TestInitFileHotspotS724:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "init file hotspot" in out, (
-            f"Expected 'init file hotspot' when top hotspot is in __init__.py; got:\n{out}"
-        )
+        # S724 pruned
+        assert "init file hotspot" not in out, (f"S724 pruned; should not appear")
 
     def test_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -34689,8 +34702,9 @@ class TestMixedDiffS729:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_diff_context(g, ["core.py", "test_core.py"])
-        assert "mixed diff" in out, (
-            f"Expected 'mixed diff' when both source and test files changed; got:\n{out}"
+        # S729 pruned — duplicate test-diff signal
+        assert "mixed diff" not in out, (
+            f"S729 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -36251,9 +36265,8 @@ class TestFileConcentrationS766:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "file concentration" in out, (
-            f"Expected 'file concentration' when top 3 hotspots share a file; got:\n{out}"
-        )
+        # S766 pruned
+        assert "file concentration" not in out, (f"S766 pruned; should not appear")
 
     def test_absent(self, tmp_path):
         from tempograph.render.hotspots import render_hotspots
@@ -37198,8 +37211,9 @@ class TestDunderMethodFocusS786:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "__init__")
-        assert "dunder method" in out, (
-            f"Expected 'dunder method' for __init__; got:\n{out}"
+        # S786 pruned — taxonomic label
+        assert "dunder method" not in out, (
+            f"S786 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -37409,7 +37423,7 @@ class TestDeadSubclassS791:
 # ── S786: Dunder method focus ─────────────────────────────────────────────
 
 class TestDunderMethodFocusS786:
-    """S786: Focused symbol is a dunder method emits dunder-method signal."""
+    """S786: PRUNED — taxonomic label."""
 
     def test_shown(self, tmp_path):
         from tempograph.render.focused import render_focused
@@ -37423,8 +37437,9 @@ class TestDunderMethodFocusS786:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "__iter__")
-        assert "dunder method" in out, (
-            f"Expected 'dunder method' for __iter__ focus; got:\n{out}"
+        # S786 pruned — taxonomic label
+        assert "dunder method" not in out, (
+            f"S786 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -38499,8 +38514,9 @@ class TestDeprecatedSymbolFocusS810:
         (tmp_path / "app.py").write_text("from legacy import old_api\ndef run(x): old_api(x)\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "old_api")
-        assert "deprecated symbol" in out, (
-            f"Expected 'deprecated symbol' for fn with deprecated docstring; got:\n{out}"
+        # S810 pruned — name quality
+        assert "deprecated symbol" not in out, (
+            f"S810 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -38718,8 +38734,9 @@ class TestDeprecatedSymbolFocusS810:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "old_fetch")
-        assert "deprecated symbol" in out, (
-            f"Expected 'deprecated symbol' for fn with deprecation docstring; got:\n{out}"
+        # S810 pruned — name quality
+        assert "deprecated symbol" not in out, (
+            f"S810 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -40187,8 +40204,9 @@ class TestDeprecatedHotspotS844:
             )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "deprecated hotspot" in out, (
-            f"'deprecated hotspot' expected when top hotspot docstring contains 'deprecated'; got:\n{out}"
+        # S517 pruned — name quality
+        assert "deprecated hotspot" not in out, (
+            f"S517 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -40745,8 +40763,9 @@ class TestAbstractMethodFocusS858:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "abstract_process")
-        assert "abstract method" in out, (
-            f"'abstract method' expected for method in AbstractProcessor; got:\n{out}"
+        # S858 pruned — taxonomic label
+        assert "abstract method" not in out, (
+            f"S858 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -40974,8 +40993,9 @@ class TestAbstractMethodFocusS858:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "process")
-        assert "abstract method" in out, (
-            f"'abstract method' expected for method in AbstractProcessor; got:\n{out}"
+        # S858 pruned — taxonomic label
+        assert "abstract method" not in out, (
+            f"S858 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -41091,7 +41111,7 @@ class TestMixedDiffS861:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_diff_context(g, ["auth.py", "test_auth.py"])
-        assert "mixed diff" in out, (
+        assert "mixed diff" not in out, (  # S729 pruned
             f"'mixed diff' expected when source and test files are both changed; got:\n{out}"
         )
 
@@ -42292,8 +42312,9 @@ class TestHotspotClusterS892:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "coupling hub" in out, (
-            f"'coupling hub' expected when 3+ hotspots in same file; got:\n{out}"
+        # S892 pruned — duplicate hotspot taxonomy
+        assert "coupling hub" not in out, (
+            f"S892 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -42366,8 +42387,9 @@ class TestDeprecatedFileFocusS894:
         (tmp_path / "app.py").write_text("def run(): pass\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "old_login")
-        assert "deprecated file" in out, (
-            f"'deprecated file' expected for symbol in legacy-named file; got:\n{out}"
+        # S894 pruned — name quality
+        assert "deprecated file" not in out, (
+            f"S894 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -42870,8 +42892,9 @@ class TestConstructorFocusS906:
         (tmp_path / "app.py").write_text("from user import User\ndef run(): User('alice')\n")
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "__init__")
-        assert "constructor" in out, (
-            f"'constructor' expected for __init__ method; got:\n{out}"
+        # S906 pruned — taxonomic label
+        assert "constructor" not in out, (
+            f"S906 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -43021,8 +43044,9 @@ class TestConcentrationHotspotS910:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "concentration hotspot" in out, (
-            f"'concentration hotspot' expected when top 5 hotspots in same file; got:\n{out}"
+        # S910 pruned — duplicate hotspot taxonomy
+        assert "concentration hotspot" not in out, (
+            f"S910 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -43102,8 +43126,9 @@ class TestDunderMethodFocusS912:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "__len__")
-        assert "dunder method" in out, (
-            f"'dunder method' expected for __len__ focus; got:\n{out}"
+        # S912 pruned — taxonomic label
+        assert "dunder method" not in out, (
+            f"S912 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -43319,7 +43344,8 @@ class TestPrivateMethodFocusS918:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_focused(g, "_load_config")
-        assert "private method" in out, f"expected private method; got: {out}"
+        # S918 pruned — taxonomic label
+        assert "private method" not in out, f"S918 pruned; should not appear: {out}"
 
     def test_absent(self, tmp_path):
         from tempograph import build_graph
@@ -44067,8 +44093,9 @@ class TestLegacyHotspotS940:
         )
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "legacy hotspot" in out, (
-            f"'legacy hotspot' expected for hotspot in legacy file; got:\n{out}"
+        # S940 pruned — duplicate of S856
+        assert "legacy hotspot" not in out, (
+            f"S940 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
@@ -47347,8 +47374,9 @@ class TestCoLocatedHotspotsS1012:
         (tmp_path / "engine.py").write_text(fn_lines)
         g = build_graph(str(tmp_path), use_cache=False)
         out = render_hotspots(g)
-        assert "co-located hotspots" in out, (
-            f"'co-located hotspots' expected when top 2 hotspots are in same file; got:\n{out}"
+        # S1012 pruned — duplicate hotspot taxonomy
+        assert "co-located hotspots" not in out, (
+            f"S1012 pruned; should not appear: {out}"
         )
 
     def test_absent(self, tmp_path):
