@@ -966,14 +966,8 @@ def _signals_hotspots_core_a_structure(
             )
 
 
-def _signals_hotspots_core_a_risks(
-    graph: Tempo,
-    scores: list[tuple[float, Symbol]],
-    velocity: dict[str, float],
-    velocity_14: dict[str, float],
-    all_test_fps: set[str],
-    top_n: int,
-    out: list[str],
+def _a_risks_topology(
+    graph: Tempo, scores: list[tuple[float, Symbol]], top_n: int, out: list[str]
 ) -> None:
     # S144: Recursive fns in hotspots — top-ranked symbols that call themselves.
     # Recursive functions are harder to modify: changing loop invariants or base cases
@@ -1012,15 +1006,18 @@ def _signals_hotspots_core_a_risks(
                     f" vs avg {_avg206:.1f} ({_top_count206 / _avg206:.1f}×)"
                 )
 
+
+def _a_risks_file_profile(
+    graph: Tempo, scores: list[tuple[float, Symbol]], out: list[str]
+) -> None:
     # S216: Exported hotspot — the top hotspot file exports many symbols.
     # Frequently-changed exported symbols mean frequent contract changes for all callers.
     # Only shown when top hotspot file exports >= 5 fn/method/class symbols.
     if scores:
         _top216_fp = scores[0][1].file_path
         _s216_exported = [
-            s for s in graph.symbols.values()
-            if s.file_path == _top216_fp
-            and s.exported
+            s for s in graph.symbols_in_file(_top216_fp)
+            if s.exported
             and s.kind.value in ("function", "method", "class", "interface")
         ]
         if len(_s216_exported) >= 5:
@@ -1035,7 +1032,7 @@ def _signals_hotspots_core_a_risks(
     # Only shown when the top hotspot file has 1 class that contains >= 50% of its symbols.
     if scores:
         _top223_fp = scores[0][1].file_path
-        _top223_syms = [s for s in graph.symbols.values() if s.file_path == _top223_fp]
+        _top223_syms = graph.symbols_in_file(_top223_fp)
         _top223_classes = [s for s in _top223_syms if s.kind.value == "class"]
         if len(_top223_classes) == 1 and len(_top223_syms) >= 6:
             _cls223 = _top223_classes[0]
@@ -1054,9 +1051,8 @@ def _signals_hotspots_core_a_risks(
     if scores:
         _top230_fp = scores[0][1].file_path
         _cx_vals230 = [
-            s.complexity for s in graph.symbols.values()
-            if s.file_path == _top230_fp
-            and s.kind.value in ("function", "method")
+            s.complexity for s in graph.symbols_in_file(_top230_fp)
+            if s.kind.value in ("function", "method")
             and s.complexity is not None
         ]
         if len(_cx_vals230) >= 3:
@@ -1068,6 +1064,10 @@ def _signals_hotspots_core_a_risks(
                     f" — frequently changed but simple; likely config/data churn"
                 )
 
+
+def _a_risks_coverage_docs(
+    graph: Tempo, scores: list[tuple[float, Symbol]], out: list[str]
+) -> None:
     # S236: Ghost hotspot — top hotspot symbol has 0 direct test callers.
     # Frequently-changed code with no test callers is high-risk; no safety net.
     # Only shown when the top-ranked hotspot fn/method has 0 test callers.
@@ -1134,6 +1134,20 @@ def _signals_hotspots_core_a_risks(
                     f"\nundocumented hotspot: {_top253.name}"
                     f" — top hotspot has no docstring; add docs when modifying"
                 )
+
+
+def _signals_hotspots_core_a_risks(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    velocity: dict[str, float],
+    velocity_14: dict[str, float],
+    all_test_fps: set[str],
+    top_n: int,
+    out: list[str],
+) -> None:
+    _a_risks_topology(graph, scores, top_n, out)
+    _a_risks_file_profile(graph, scores, out)
+    _a_risks_coverage_docs(graph, scores, out)
 
 
 def _signals_hotspots_core_a(
