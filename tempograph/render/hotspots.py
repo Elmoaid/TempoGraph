@@ -966,14 +966,8 @@ def _signals_hotspots_core_a_structure(
             )
 
 
-def _signals_hotspots_core_a_risks(
-    graph: Tempo,
-    scores: list[tuple[float, Symbol]],
-    velocity: dict[str, float],
-    velocity_14: dict[str, float],
-    all_test_fps: set[str],
-    top_n: int,
-    out: list[str],
+def _a_risks_topology(
+    graph: Tempo, scores: list[tuple[float, Symbol]], top_n: int, out: list[str]
 ) -> None:
     # S144: Recursive fns in hotspots — top-ranked symbols that call themselves.
     # Recursive functions are harder to modify: changing loop invariants or base cases
@@ -1012,15 +1006,18 @@ def _signals_hotspots_core_a_risks(
                     f" vs avg {_avg206:.1f} ({_top_count206 / _avg206:.1f}×)"
                 )
 
+
+def _a_risks_file_profile(
+    graph: Tempo, scores: list[tuple[float, Symbol]], out: list[str]
+) -> None:
     # S216: Exported hotspot — the top hotspot file exports many symbols.
     # Frequently-changed exported symbols mean frequent contract changes for all callers.
     # Only shown when top hotspot file exports >= 5 fn/method/class symbols.
     if scores:
         _top216_fp = scores[0][1].file_path
         _s216_exported = [
-            s for s in graph.symbols.values()
-            if s.file_path == _top216_fp
-            and s.exported
+            s for s in graph.symbols_in_file(_top216_fp)
+            if s.exported
             and s.kind.value in ("function", "method", "class", "interface")
         ]
         if len(_s216_exported) >= 5:
@@ -1035,7 +1032,7 @@ def _signals_hotspots_core_a_risks(
     # Only shown when the top hotspot file has 1 class that contains >= 50% of its symbols.
     if scores:
         _top223_fp = scores[0][1].file_path
-        _top223_syms = [s for s in graph.symbols.values() if s.file_path == _top223_fp]
+        _top223_syms = graph.symbols_in_file(_top223_fp)
         _top223_classes = [s for s in _top223_syms if s.kind.value == "class"]
         if len(_top223_classes) == 1 and len(_top223_syms) >= 6:
             _cls223 = _top223_classes[0]
@@ -1054,9 +1051,8 @@ def _signals_hotspots_core_a_risks(
     if scores:
         _top230_fp = scores[0][1].file_path
         _cx_vals230 = [
-            s.complexity for s in graph.symbols.values()
-            if s.file_path == _top230_fp
-            and s.kind.value in ("function", "method")
+            s.complexity for s in graph.symbols_in_file(_top230_fp)
+            if s.kind.value in ("function", "method")
             and s.complexity is not None
         ]
         if len(_cx_vals230) >= 3:
@@ -1068,6 +1064,10 @@ def _signals_hotspots_core_a_risks(
                     f" — frequently changed but simple; likely config/data churn"
                 )
 
+
+def _a_risks_coverage_docs(
+    graph: Tempo, scores: list[tuple[float, Symbol]], out: list[str]
+) -> None:
     # S236: Ghost hotspot — top hotspot symbol has 0 direct test callers.
     # Frequently-changed code with no test callers is high-risk; no safety net.
     # Only shown when the top-ranked hotspot fn/method has 0 test callers.
@@ -1134,6 +1134,20 @@ def _signals_hotspots_core_a_risks(
                     f"\nundocumented hotspot: {_top253.name}"
                     f" — top hotspot has no docstring; add docs when modifying"
                 )
+
+
+def _signals_hotspots_core_a_risks(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    velocity: dict[str, float],
+    velocity_14: dict[str, float],
+    all_test_fps: set[str],
+    top_n: int,
+    out: list[str],
+) -> None:
+    _a_risks_topology(graph, scores, top_n, out)
+    _a_risks_file_profile(graph, scores, out)
+    _a_risks_coverage_docs(graph, scores, out)
 
 
 def _signals_hotspots_core_a(
@@ -2323,13 +2337,9 @@ def _signals_hotspots_core_c_classification(
     _class_c_system_scope(graph, scores, out)
 
 
-def _signals_hotspots_core_c_callers(
+def _c_callers_test_only(
     graph: Tempo,
     scores: list[tuple[float, Symbol]],
-    velocity: dict[str, float],
-    velocity_14: dict[str, float],
-    all_test_fps: set[str],
-    top_n: int,
     out: list[str],
 ) -> None:
     # S676: Test-only callers — top hotspot has callers but all are from test files.
@@ -2349,6 +2359,31 @@ def _signals_hotspots_core_c_callers(
                     f" ({len(_callers676)} test caller(s)) — over-exposed internal or tests bypassing public API"
                 )
 
+
+def _c_callers_no_tests(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
+    # S730: Hotspot with no test callers — the top hotspot has callers but none are test files.
+    # A heavily-called hotspot with no test coverage is a high-risk symbol; changes to it have
+    # large blast radius with no safety net to catch regressions.
+    if scores and scores[0]:
+        _top730 = scores[0][1]
+        if _top730 is not None and not _is_test_file(_top730.file_path):
+            _callers730 = graph.callers_of(_top730.id)
+            _test_callers730 = [c for c in _callers730 if _is_test_file(c.file_path)]
+            if _callers730 and not _test_callers730:
+                out.append(
+                    f"\nno test coverage: {_top730.name} is a top hotspot ({len(_callers730)} callers)"
+                    f" with no direct test callers — high blast radius, low safety net; add tests"
+                )
+
+
+def _c_callers_comparison_scores(
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
     # S682: Complexity outlier — top hotspot complexity is 5x+ the second hotspot's complexity.
     # When one symbol dramatically outscores others in complexity, it's an extreme outlier;
     # it concentrates cognitive risk and is the highest-priority refactoring target.
@@ -2367,6 +2402,34 @@ def _signals_hotspots_core_c_callers(
                 f" vs next={_second682.complexity} — extreme outlier; highest-priority refactor target"
             )
 
+    # S700: Package cluster — top 2 hotspots are in the same directory (module-level bottleneck).
+    # When the highest-ranked hotspots share a parent directory, that package is a focal point;
+    # its internal coupling is high and changes to the package ripple across many consumers.
+    if len(scores) >= 2:
+        _top700 = scores[0][1]
+        _second700 = scores[1][1]
+        if (
+            _top700 is not None
+            and _second700 is not None
+            and not _is_test_file(_top700.file_path)
+            and not _is_test_file(_second700.file_path)
+            and _top700.file_path != _second700.file_path
+        ):
+            _dir700_top = _top700.file_path.replace("\\", "/").rsplit("/", 1)[0]
+            _dir700_sec = _second700.file_path.replace("\\", "/").rsplit("/", 1)[0]
+            if _dir700_top and _dir700_top == _dir700_sec:
+                _pkg_name700 = _dir700_top.rsplit("/", 1)[-1]
+                out.append(
+                    f"\npackage cluster: top 2 hotspots both in {_pkg_name700}/"
+                    f" — module-level bottleneck; consider splitting or extracting an interface"
+                )
+
+
+def _c_callers_solo_file(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
     # S688: Solo file hotspot — top hotspot is the only non-test symbol in its file.
     # A file with a single hotspot symbol is a candidate for inlining into its callers
     # or merging into a related module to reduce file proliferation.
@@ -2386,6 +2449,33 @@ def _signals_hotspots_core_c_callers(
                     f" — single-symbol file; consider inlining or merging"
                 )
 
+
+def _c_callers_large_body(
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
+    # S706: Large function body — top hotspot has byte_size > 3000 bytes.
+    # A hotspot that is also physically large concentrates both traffic and logic;
+    # it's the highest-priority target for extraction and complexity reduction.
+    if scores and scores[0]:
+        _top706 = scores[0][1]
+        if (
+            _top706 is not None
+            and not _is_test_file(_top706.file_path)
+            and _top706.kind.value in ("function", "method")
+            and _top706.byte_size > 3000
+        ):
+            out.append(
+                f"\nlarge function body: {_top706.name} is {_top706.byte_size:,} bytes"
+                f" — large hotspot function; extract sub-functions to reduce complexity"
+            )
+
+
+def _c_callers_wrapper_class(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
     # S694: Wrapper class hotspot — top hotspot is a method in a class with only 1-2 methods.
     # A hotspot method inside a near-empty class suggests the class is a thin wrapper;
     # the class adds abstraction overhead without providing enough behaviour to justify it.
@@ -2410,44 +2500,12 @@ def _signals_hotspots_core_c_callers(
                         f" — thin wrapper; consider inlining the class"
                     )
 
-    # S700: Package cluster — top 2 hotspots are in the same directory (module-level bottleneck).
-    # When the highest-ranked hotspots share a parent directory, that package is a focal point;
-    # its internal coupling is high and changes to the package ripple across many consumers.
-    if len(scores) >= 2:
-        _top700 = scores[0][1]
-        _second700 = scores[1][1]
-        if (
-            _top700 is not None
-            and _second700 is not None
-            and not _is_test_file(_top700.file_path)
-            and not _is_test_file(_second700.file_path)
-            and _top700.file_path != _second700.file_path
-        ):
-            _dir700_top = _top700.file_path.replace("\\", "/").rsplit("/", 1)[0]
-            _dir700_sec = _second700.file_path.replace("\\", "/").rsplit("/", 1)[0]
-            if _dir700_top and _dir700_top == _dir700_sec:
-                _pkg_name700 = _dir700_top.rsplit("/", 1)[-1]
-                out.append(
-                    f"\npackage cluster: top 2 hotspots both in {_pkg_name700}/"
-                    f" — module-level bottleneck; consider splitting or extracting an interface"
-                )
 
-    # S706: Large function body — top hotspot has byte_size > 3000 bytes.
-    # A hotspot that is also physically large concentrates both traffic and logic;
-    # it's the highest-priority target for extraction and complexity reduction.
-    if scores and scores[0]:
-        _top706 = scores[0][1]
-        if (
-            _top706 is not None
-            and not _is_test_file(_top706.file_path)
-            and _top706.kind.value in ("function", "method")
-            and _top706.byte_size > 3000
-        ):
-            out.append(
-                f"\nlarge function body: {_top706.name} is {_top706.byte_size:,} bytes"
-                f" — large hotspot function; extract sub-functions to reduce complexity"
-            )
-
+def _c_callers_fan_out(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    out: list[str],
+) -> None:
     # S712: Fan-out hotspot — top hotspot calls more symbols than it has callers.
     # A hotspot that calls more things than it receives calls from is a dependency accumulator;
     # it may be a "god function" that orchestrates too many responsibilities.
@@ -2467,44 +2525,23 @@ def _signals_hotspots_core_c_callers(
                     f" — dependency accumulator; verify it's not doing too much"
                 )
 
-    # S718: Deprecated hotspot — PRUNED: name quality — agent sees name
-    if False:  # PRUNED: name quality
-        if scores and scores[0]:
-            _top718 = scores[0][1]
-            if _top718 is not None and any(kw in _top718.name.lower() for kw in ("old", "legacy", "deprecated")):
-                _callers718 = graph.callers_of(_top718.id)
-                out.append(
-                    f"\ndeprecated hotspot: {_top718.name} is a top hotspot but looks deprecated"
-                    f" ({len(_callers718)} callers) — migration is incomplete; audit callers and remove"
-                )
 
-    # S724: Hotspot in __init__ file — PRUNED: duplicate of S289 interface module hotspot
-    if False:  # PRUNED: duplicate hotspot taxonomy
-        if scores and scores[0]:
-            _top724 = scores[0][1]
-            if (
-                _top724 is not None
-                and _top724.file_path.replace("\\", "/").rsplit("/", 1)[-1] == "__init__.py"
-            ):
-                _callers724 = graph.callers_of(_top724.id)
-                out.append(
-                    f"\ninit file hotspot: {_top724.name} (in __init__.py) is a top hotspot"
-                    f" ({len(_callers724)} callers) — public API re-export under high load; breaking change risk"
-                )
-
-    # S730: Hotspot with no test callers — the top hotspot has callers but none are test files.
-    # A heavily-called hotspot with no test coverage is a high-risk symbol; changes to it have
-    # large blast radius with no safety net to catch regressions.
-    if scores and scores[0]:
-        _top730 = scores[0][1]
-        if _top730 is not None and not _is_test_file(_top730.file_path):
-            _callers730 = graph.callers_of(_top730.id)
-            _test_callers730 = [c for c in _callers730 if _is_test_file(c.file_path)]
-            if _callers730 and not _test_callers730:
-                out.append(
-                    f"\nno test coverage: {_top730.name} is a top hotspot ({len(_callers730)} callers)"
-                    f" with no direct test callers — high blast radius, low safety net; add tests"
-                )
+def _signals_hotspots_core_c_callers(
+    graph: Tempo,
+    scores: list[tuple[float, Symbol]],
+    velocity: dict[str, float],
+    velocity_14: dict[str, float],
+    all_test_fps: set[str],
+    top_n: int,
+    out: list[str],
+) -> None:
+    _c_callers_test_only(graph, scores, out)
+    _c_callers_no_tests(graph, scores, out)
+    _c_callers_comparison_scores(scores, out)
+    _c_callers_solo_file(graph, scores, out)
+    _c_callers_large_body(scores, out)
+    _c_callers_wrapper_class(graph, scores, out)
+    _c_callers_fan_out(graph, scores, out)
 
 
 def _signals_hotspots_core_c_risk(
