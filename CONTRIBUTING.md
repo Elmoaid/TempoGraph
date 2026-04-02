@@ -5,7 +5,7 @@ Thanks for wanting to contribute! Here's how to get going.
 ## Setup
 
 ```bash
-git clone https://github.com/Elmoaid/tempograph.git
+git clone https://github.com/Elmoaid/TempoGraph.git
 cd tempograph
 pip install -e ".[dev]"
 pytest  # make sure everything passes
@@ -46,7 +46,7 @@ The test suite is the source of truth. If tests pass, you're probably good.
 
 ## Reporting bugs
 
-Use the [bug report template](https://github.com/Elmoaid/tempograph/issues/new?template=bug_report.yml). Include your tempograph version, Python version, and OS.
+Use the [bug report template](https://github.com/Elmoaid/TempoGraph/issues/new?template=bug_report.yml). Include your tempograph version, Python version, and OS.
 
 ## License
 
