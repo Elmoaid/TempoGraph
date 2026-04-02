@@ -222,6 +222,18 @@ python3 -m bench.changelocal.analyze --canonical --conditions baseline,tempograp
 - **Local-first**: Everything runs on your machine. No API keys, no cloud, no data leaves your laptop
 - **4,700+ tests**: Comprehensive coverage across pytest + vitest
 
+## Support & Sponsorship
+
+If TempoGraph saves you time, consider [sponsoring the project](https://github.com/sponsors/Elmoaid). Sponsors get early access to new features before they go public.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-TempoGraph-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/Elmoaid)
+
+## Commercial Licensing
+
+TempoGraph is free for individual and internal use. If you're building a **commercial hosted service** that incorporates TempoGraph (IDE plugins, SaaS code analysis, AI coding platforms), you need a commercial license.
+
+Contact **elmoaid@gmail.com** for licensing terms.
+
 ## License
 
 [BSL 1.1](LICENSE) — free to use, can't resell as a hosted service. Converts to Apache 2.0 on 2030-03-22.
