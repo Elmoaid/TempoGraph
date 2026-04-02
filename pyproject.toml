@@ -65,9 +65,9 @@ tempo = "tempo.cli:main"
 tempograph-server = "tempograph.server:run_server"
 
 [project.urls]
-Homepage = "https://github.com/Elmoaid/tempograph"
-Repository = "https://github.com/Elmoaid/tempograph"
-Issues = "https://github.com/Elmoaid/tempograph/issues"
+Homepage = "https://github.com/Elmoaid/TempoGraph"
+Repository = "https://github.com/Elmoaid/TempoGraph"
+Issues = "https://github.com/Elmoaid/TempoGraph/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tempograph", "tempo"]
