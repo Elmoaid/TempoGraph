@@ -1157,7 +1157,10 @@ def run_server():
             i += 1
 
     if transport == "sse":
-        mcp.run(transport="sse", host="0.0.0.0", port=port)
+        mcp.settings.host = "0.0.0.0"
+        mcp.settings.port = port
+        mcp.settings.transport_security.enable_dns_rebinding_protection = False
+        mcp.run(transport="sse")
     else:
         mcp.run()
 
