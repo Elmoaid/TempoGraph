@@ -10,6 +10,10 @@
 
 Tempograph parses your codebase with tree-sitter, builds a structural dependency graph, and gives you (and your AI agent) the right context before making code changes. Focus on a symbol, check what breaks, find dead code, spot hotspots -- all from one tool.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="TempoGraph demo" width="700">
+</p>
+
 ### Benchmark Results
 
 Tested across multiple models using the same change-localization task (identify which files need to change for a given PR). Tempograph context vs no context:
