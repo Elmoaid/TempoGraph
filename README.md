@@ -6,11 +6,21 @@
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 
-**Code graph context engine for AI coding agents.**
+**Code graph context engine for developers and AI agents.**
 
-Tempograph parses your codebase with tree-sitter, builds a structural dependency graph, and gives AI agents exactly the right context before they make code changes. One `prepare_context` call replaces manual file-hunting.
+Tempograph parses your codebase with tree-sitter, builds a structural dependency graph, and gives you (and your AI agent) the right context before making code changes. Focus on a symbol, check what breaks, find dead code, spot hotspots -- all from one tool.
 
-**Statistically validated**: +18.6% F1 improvement on change-localization (p=0.049, n=45) with zero harm rate. No other code context tool publishes retrieval results with statistical significance.
+### Benchmark Results
+
+Tested across multiple models using the same change-localization task (identify which files need to change for a given PR). Tempograph context vs no context:
+
+| Model | Baseline F1 | With Tempograph | Improvement | n |
+|-------|------------|-----------------|-------------|---|
+| GPT-4o | 21.7% | 27.5% | **+27%** | 17 |
+| GPT-4o-mini | 19.2% | 24.5% | **+28%** | 42 |
+| qwen2.5-coder:32b | -- | -- | **+18.6%** (p=0.049) | 45 |
+
+Positive improvement across every model tested. 2-3x more tasks helped than hurt. No other code context tool publishes retrieval benchmarks with statistical significance.
 
 ```bash
 pip install tempograph
