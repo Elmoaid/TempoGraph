@@ -43,6 +43,10 @@ class TestGraphWatcher:
         """Start and stop without errors (watchfiles may or may not be installed)."""
         watcher = GraphWatcher(tmp_path)
         watcher.start()
-        assert watcher.is_running
+        try:
+            import watchfiles  # noqa: F401
+            assert watcher.is_running
+        except ImportError:
+            pass  # start() is a no-op without watchfiles
         watcher.stop()
         assert not watcher.is_running
