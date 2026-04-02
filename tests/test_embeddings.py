@@ -1,6 +1,7 @@
 """Tests for tempograph.embeddings — uses mock-or-skip pattern for optional fastembed dep."""
 from __future__ import annotations
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -118,7 +119,7 @@ class TestEmbedSymbols:
 
     def test_embeds_symbols_with_mocked_model(self, tmp_path):
         """embed_symbols calls upsert_vectors_batch with correct number of items."""
-        import numpy as np
+        np = pytest.importorskip("numpy")
         fake_embedding = np.array([0.1] * 384)
         fake_model = MagicMock()
         fake_model.embed.return_value = [fake_embedding]
@@ -140,7 +141,7 @@ class TestEmbedSymbols:
 
     def test_skips_already_embedded_symbols(self, tmp_path):
         """embed_symbols skips symbols that already have vectors (incremental)."""
-        import numpy as np
+        np = pytest.importorskip("numpy")
         fake_embedding = np.array([0.2] * 384)
         fake_model = MagicMock()
         fake_model.embed.return_value = [fake_embedding]
@@ -160,7 +161,7 @@ class TestEmbedSymbols:
 
     def test_force_reembeds_all(self, tmp_path):
         """force=True re-embeds even existing symbols."""
-        import numpy as np
+        np = pytest.importorskip("numpy")
         fake_embedding = np.array([0.3] * 384)
         fake_model = MagicMock()
         fake_model.embed.side_effect = [[fake_embedding], [fake_embedding]]
@@ -185,7 +186,7 @@ class TestEmbedQuery:
             assert result is None
 
     def test_returns_embedding_list(self):
-        import numpy as np
+        np = pytest.importorskip("numpy")
         fake_embedding = np.array([0.5] * 384)
         fake_model = MagicMock()
         fake_model.embed.return_value = [fake_embedding]
@@ -199,7 +200,7 @@ class TestEmbedQuery:
 
     def test_query_passed_as_list(self):
         """embed_query wraps query in a list before calling model.embed."""
-        import numpy as np
+        np = pytest.importorskip("numpy")
         fake_model = MagicMock()
         fake_model.embed.return_value = [np.array([0.0] * 384)]
 
